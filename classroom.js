@@ -1,5 +1,5 @@
 import { apiBase, publicKey } from './online-config.js';
-import { archiveActivity, currentTurns, fitPieceMarkup } from './archive-activities.mjs?v=legible-1';
+import { lockExample, archiveActivity, currentTurns, fitPieceMarkup } from './archive-activities.mjs?v=lock-guide-1';
 import { fitLayout, pieceSquares } from './spatial-tools.mjs';
 
 const find = id => document.getElementById(id);
@@ -145,7 +145,7 @@ function lobby() {
 }
 
 function intro(question) {
-  return '<div class="intro-layout"><p class="intro-text">' + escape(question.intro) + '</p>' +
+  return '<div class="intro-layout"><p class="intro-text">' + escape(question.intro) + '</p>' + (question.kind === 'lock' ? lockExample() : '') +
     '<ol class="instructions">' + question.steps.map(step => '<li>' + escape(step) + '</li>').join('') + '</ol></div>';
 }
 
@@ -381,12 +381,12 @@ const studentInstructions = {
     ]
   },
   "lock": {
-    "intro": "표의 각 줄은 누군가 암호를 한 번 입력한 기록입니다. 네 기록을 모두 만족하는 암호를 찾으세요.",
+    "intro": "상자 비밀번호는 서로 다른 그림 네 개예요. 먼저 짧은 예시로 단서 읽는 법을 익혀 보세요.",
     "steps": [
-      "‘자리까지’는 그림과 위치가 모두 맞은 개수입니다.",
-      "‘그림만’은 암호에 들어 있지만 위치가 틀린 그림의 개수입니다."
+      "실전에서는 정답 대신 네 번의 시도 기록을 보여 줘요.",
+      "우선 첫 번째 기록을 보고 암호에 없는 그림부터 빼 보세요."
     ],
-    "prompt": "암호에 들어갈 그림 네 개를 순서대로 누르세요. 같은 그림은 두 번 쓸 수 없습니다."
+    "prompt": "네 단서에 모두 맞는 그림 네 개를 찾아 왼쪽부터 순서대로 누르세요."
   }
 };
 

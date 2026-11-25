@@ -103,15 +103,27 @@ function orderActivity(question, draft, host, reveal, escape) {
     '<p>이미 채운 칸을 누르면 그 장소를 뺄 수 있어요.</p>' };
 }
 
+export function lockExample() {
+  return '<section class="lock-example"><h3>연습 · 세 칸짜리 자물쇠</h3>' +
+    '<p>정답 순서　🍎 사과 → 🔑 열쇠 → 🔔 종</p><p>눌러 본 순서　🍎 사과 → 🔔 종 → 🌙 달</p>' +
+    '<ul><li>사과는 첫째 칸에 있어요. <b>그림과 자리 모두 맞음.</b></li>' +
+    '<li>종은 암호에 있지만 셋째 칸에 있어야 해요. <b>그림은 맞고 자리는 다름.</b></li>' +
+    '<li>달은 암호에 없어요.</li></ul></section>';
+}
+
 function lockActivity(question, draft, host, reveal, escape) {
   const answer = reveal ? question.correct : draft.lock;
   const symbol = id => question.symbols.find(item => item.id === id);
-  const clues = '<table class="clue-table pictogram-clues"><thead><tr><th scope="col">눌러 본 그림</th>' +
-    '<th scope="col">자리까지</th><th scope="col">그림만</th></tr></thead><tbody>' + question.clues.map(row =>
-      '<tr><td><span class="pictograms">' + row.attempt.map(id => {
-        const item = symbol(id);
-        return '<span aria-label="' + escape(item.name) + '">' + escape(item.icon) + '</span>';
-      }).join('') + '</span></td><td>' + row.exact + '개</td><td>' + row.moved + '개</td></tr>').join('') + '</tbody></table>';
+  const picture = item => '<span class="named-picture"><b aria-hidden="true">' + escape(item.icon) +
+    '</b><small>' + escape(item.name) + '</small></span>';
+  const clues = '<ol class="lock-records">' + question.clues.map((row, i) => {
+    const result = row.exact + row.moved === 0 ? '이 네 그림은 모두 암호에 없어요.' :
+      '이 중 ' + (row.exact + row.moved) + '개가 암호에 있어요. ' +
+      (row.exact ? row.exact + '개는 자리도 맞아요. ' : '') +
+      (row.moved ? row.moved + '개는 다른 자리에 있어요.' : '');
+    return '<li><strong>시도 ' + (i + 1) + '</strong><div class="record-pictures">' +
+      row.attempt.map(id => picture(symbol(id))).join('') + '</div><p>' + result.trim() + '</p></li>';
+  }).join('') + '</ol>';
   const slots = '<div class="lock-slots" aria-label="고른 그림">' + Array.from({ length: 4 }, (_, index) => {
     const item = symbol(answer[index]);
     const glyph = item ? escape(item.icon) : '·';
@@ -122,8 +134,8 @@ function lockActivity(question, draft, host, reveal, escape) {
   }).join('') + '</div>';
   const keys = '<div class="lock-keys">' + question.symbols.map(item =>
     '<button type="button" data-lock-symbol="' + item.id + '" data-archive-edit data-not-ready="' + answer.includes(item.id) +
-    '" aria-label="' + escape(item.name) + '"' + (host ? ' disabled' : '') + '>' + escape(item.icon) + '</button>').join('') + '</div>';
-  return { board: clues + (reveal ? slots : ''), panel: '<h2>그림 네 개</h2>' + slots + keys +
+    '" aria-label="' + escape(item.name) + '"' + (host ? ' disabled' : '') + '>' + picture(item) + '</button>').join('') + '</div>';
+  return { board: clues + (reveal ? slots : '<details class="lock-help"><summary>단서 읽는 예시 다시 보기</summary>' + lockExample() + '</details>'), panel: '<h2>내가 입력할 암호</h2>' + slots + keys +
     '<p>이미 고른 그림을 칸에서 눌러 뺄 수 있어요.</p>' };
 }
 

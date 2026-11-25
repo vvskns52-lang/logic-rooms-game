@@ -219,3 +219,5 @@ body::after {
 .fit .piece-diagram{grid-template-columns:repeat(var(--piece-width),17px);grid-template-rows:repeat(var(--piece-height),17px)}
 .scene.record-sheet.fit .fit-cell.fit-hover{background:#bce5c6;outline:3px solid #15663c;outline-offset:-3px}
 .scene.record-sheet.fit .fit-cell.fit-blocked{outline:3px dashed #9d2028;outline-offset:-4px;background:#f3c3b6}
+
+.lock-records{list-style:none;margin:0;padding:0}.lock-records li{padding:.65rem 0;border-bottom:1px solid currentColor}.record-pictures{display:inline-flex;gap:clamp(5px,1vw,14px);margin-left:1em}.named-picture{display:inline-grid;min-width:2.3em;text-align:center;line-height:1.25}.named-picture b{font:1.4rem system-ui}.named-picture small{font:normal .82rem system-ui}.lock-records p,.lock-example p{margin:.4rem 0;line-height:1.55;word-break:keep-all}.lock-example{padding:.8rem 1rem;border:1px solid currentColor}.lock-example h3{margin:0 0 .5em}.lock-example li{line-height:1.65}.lock-help summary{padding:.8rem 0;cursor:pointer}.lock .lock-keys button{min-height:52px;padding:3px}.lock .intro-layout{display:block}.lock .intro-layout .instructions{margin-top:1em}
