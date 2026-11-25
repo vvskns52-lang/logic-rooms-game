@@ -271,6 +271,26 @@ window.addEventListener('room-urgent', event => {
   mood.urgent = event.detail;
   if (ctx && enabled) heartbeat();
 });
+// 정답이면 맑은 종소리, 오답이면 낮게 가라앉는 소리
+window.addEventListener('room-result', event => {
+  if (!ctx || !enabled) return;
+  const now = ctx.currentTime;
+  const notes = event.detail ? [[1318.5, 0], [1760, 0.12], [2637, 0.24]] : [[146.8, 0], [138.6, 0.18]];
+  for (const [freq, delay] of notes) {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = event.detail ? 'sine' : 'sawtooth';
+    osc.frequency.setValueAtTime(freq, now + delay);
+    if (!event.detail) osc.frequency.exponentialRampToValueAtTime(freq * 0.7, now + delay + 0.9);
+    g.gain.setValueAtTime(0, now + delay);
+    g.gain.linearRampToValueAtTime(event.detail ? 0.09 : 0.07, now + delay + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + delay + (event.detail ? 1.6 : 1));
+    osc.connect(g).connect(master);
+    g.connect(build.echo);
+    osc.start(now + delay);
+    osc.stop(now + delay + 1.7);
+  }
+});
 document.addEventListener('visibilitychange', () => {
   if (!ctx) return;
   if (document.hidden) ctx.suspend();

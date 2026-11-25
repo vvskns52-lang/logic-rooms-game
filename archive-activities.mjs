@@ -66,7 +66,7 @@ function wireActivity(question, draft, host, reveal) {
 function compareActivity(question, draft, host, reveal, escape) {
   const chosen = reveal ? question.correct : draft.changes;
   const shelf = (marks, later) => '<div class="shelf-group"><h3>' + (later ? '나중 화면' : '처음 화면') +
-    '</h3><div class="shelf-board">' + marks.map((mark, index) => {
+    '</h3><div class="shelf-board" style="grid-template-columns:repeat(' + question.columns + ',minmax(0,1fr))">' + marks.map((mark, index) => {
       const selected = later && chosen.includes(index);
       const visual = '<span aria-hidden="true" class="shelf-mark mark-' + mark + '"></span>';
       const name = (Math.floor(index / question.columns) + 1) + '줄 ' + (index % question.columns + 1) +
@@ -79,8 +79,11 @@ function compareActivity(question, draft, host, reveal, escape) {
     }).join('') + '</div></div>';
   return {
     board: '<div class="shelf-pair">' + shelf(question.shelfStart, false) + shelf(question.shelfEnd, true) + '</div>',
-    panel: '<h2>바뀐 곳에 표시</h2><p>나중 화면의 서랍 네 칸을 고르세요. 다시 누르면 표시가 지워져요.</p>' +
-      '<p class="board-count">' + chosen.length + ' / 4칸 선택</p>',
+    panel: question.hiddenCount
+      ? '<h2>바뀐 곳에 표시</h2><p>나중 화면에서 달라진 서랍을 모두 고르세요. 몇 곳인지는 알려 주지 않아요. 다시 누르면 표시가 지워져요.</p>' +
+        '<p class="board-count">' + chosen.length + '칸 선택</p>'
+      : '<h2>바뀐 곳에 표시</h2><p>나중 화면의 서랍 네 칸을 고르세요. 다시 누르면 표시가 지워져요.</p>' +
+        '<p class="board-count">' + chosen.length + ' / 4칸 선택</p>',
   };
 }
 

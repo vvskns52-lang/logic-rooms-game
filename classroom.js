@@ -184,7 +184,8 @@ function submitRow(question) {
   if (host) return '';
   const label = question.kind === 'fit' ? '조각 초기화' : question.kind === 'wire' ? '타일 초기화' : '선택 지우기';
   const reset = '<div class="reset-line"><button type="button" class="button quiet" data-action="reset">' + label + '</button></div>';
-  return '<div class="answer-actions">' + reset + '<button type="button" class="button primary" data-action="answer">답 제출</button></div>';
+  return '<div class="answer-actions">' + reset + '<button type="button" class="button primary" data-action="answer">답 제출</button></div>' +
+    '<p id="live-result" class="live-result" role="status" hidden></p>';
 }
 
 function activity(question) {
@@ -216,9 +217,14 @@ function playing() {
   if (state.phase === 'reveal') content = reveal(question);
   const evidence = ['study', 'question'].includes(state.phase) && question.evidence
     ? '<p class="case-note">' + escape(question.evidence) + '</p>' : '';
+  const finalNote = state.phase === 'intro' && state.round === state.roundCount ? '<p class="final-note">' + (host
+    ? '결승 진출 ' + (state.finalists ?? 0) + '명. 모두 같은 마지막 문제를 풀어요.'
+    : state.area === 'finalist' ? '결승 진출! 이 문제를 맞히면 우승이에요.' : '결승에는 못 갔지만, 마지막 문제로 내 점수에 도전해요.') + '</p>' : '';
+  const board = host && ['question', 'reveal'].includes(state.phase)
+    ? '<section class="live-board" aria-label="학생별 채점 현황"><h2>실시간 채점</h2><ul id="live-board"></ul></section>' : '';
   return sceneHeader(question.title, activityTitle(question)) +
     '<p id="paused-note" class="paused-note" hidden>진행자가 게임을 잠시 멈췄어요.</p><div class="scene-body">' +
-    evidence + content + '</div>' + controls();
+    finalNote + evidence + content + board + '</div>' + controls();
 }
 
 function storyText(story) {
@@ -260,7 +266,7 @@ function answerReady() {
     case 'memory': return draft.memory.length === 3;
     case 'fit': return draft.placements.length === question.pieces.length;
     case 'wire': return true;
-    case 'compare': return draft.changes.length === 4;
+    case 'compare': return question.hiddenCount ? draft.changes.length > 0 : draft.changes.length === 4;
     case 'order': return draft.sequence.length === question.places.length;
     case 'lock': return draft.lock.length === 4;
     default: return false;
@@ -271,8 +277,27 @@ function sync() {
   const pauseNotice = find('paused-note');
   if (pauseNotice) pauseNotice.hidden = !state.paused;
   const counter = find('submitted-count');
-  if (counter) counter.textContent = state.phase === 'question'
-    ? '답 제출 ' + state.submitted + ' / ' + state.count + '명' : '참가 ' + state.count + '명';
+  if (counter) counter.textContent = ['question', 'reveal'].includes(state.phase)
+    ? '답 제출 ' + state.submitted + ' / ' + state.count + '명 · 정답 ' + (state.correctCount ?? 0) + '명' : '참가 ' + state.count + '명';
+  const liveBoard = find('live-board');
+  if (liveBoard) {
+    const rows = (state.results ?? []).map(entry => '<li class="' + (entry.correct === true ? 'is-correct' :
+      entry.correct === false ? 'is-wrong' : 'is-waiting') + '"><b aria-hidden="true">' +
+      (entry.correct === true ? 'O' : entry.correct === false ? 'X' : '…') + '</b>' + escape(entry.name) +
+      '<span class="visually-hidden">' + (entry.correct === true ? ' 정답' : entry.correct === false ? ' 오답' : ' 푸는 중') + '</span></li>').join('');
+    if (liveBoard.innerHTML !== rows) liveBoard.innerHTML = rows;
+  }
+  const liveResult = find('live-result');
+  if (liveResult && state.me) {
+    const result = state.me.submitted ? state.me.result : null;
+    const text = result === true ? '정답이에요! 문이 한 칸 더 열렸어요.' : result === false ? '틀렸어요… 풀이 시간이 끝나면 정답이 공개돼요.' : '';
+    if (liveResult.textContent !== text) {
+      liveResult.textContent = text;
+      liveResult.hidden = !text;
+      liveResult.className = 'live-result' + (result === true ? ' is-correct' : result === false ? ' is-wrong' : '');
+      if (text) window.dispatchEvent(new CustomEvent('room-result', { detail: result }));
+    }
+  }
   const roster = find('roster');
   if (roster) {
     roster.innerHTML = state.roster.map(name => '<li>' + escape(name) + '</li>').join('');
@@ -318,7 +343,8 @@ function accept(next, sequence) {
   if (state.phaseId !== phase) {
     phase = state.phaseId;
     window.dispatchEvent(new CustomEvent('room-phase', { detail: { phase: state.phase, kind: state.puzzle?.kind ?? null } }));
-    scene.className = state.puzzle ? 'scene record-sheet ' + state.puzzle.kind : 'scene';
+    scene.className = state.puzzle ? 'scene record-sheet ' + state.puzzle.kind :
+      ['story', 'epilogue', 'passage', 'finish'].includes(state.phase) ? 'scene record-sheet story-sheet' : 'scene';
     scene.innerHTML = state.phase === 'lobby' ? lobby() :
       state.phase === 'finish' ? finish() : state.phase === 'passage' ? passage() :
       ['story', 'epilogue'].includes(state.phase) ? storyScreen() : playing();
@@ -466,7 +492,7 @@ function handleSelection(button) {
   } else if (drawer !== undefined) {
     const index = Number(drawer);
     if (draft.changes.includes(index)) draft.changes = draft.changes.filter(item => item !== index);
-    else if (draft.changes.length < 4) draft.changes.push(index);
+    else if (state.puzzle.hiddenCount || draft.changes.length < 4) draft.changes.push(index);
     else {
       notice('선택한 서랍 하나를 빼고 다시 골라 주세요.');
       return true;
