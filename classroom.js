@@ -1,5 +1,5 @@
 import { apiBase, publicKey } from './online-config.js';
-import { lockExample, archiveActivity, currentTurns, fitPieceMarkup } from './archive-activities.mjs?v=lock-guide-1';
+import { lockExample, archiveActivity, currentTurns, fitPieceMarkup } from './archive-activities.mjs?v=finale-11';
 import { fitLayout, pieceSquares } from './spatial-tools.mjs';
 
 const find = id => document.getElementById(id);
@@ -121,9 +121,10 @@ function controls() {
   if (!host || ['lobby', 'finish'].includes(state.phase)) return '';
   const labels = { story: '첫 문제 열기', intro: '설명 마치기', study: '암기 건너뛰기', question: '문제 넘기기',
     reveal: '풀이 마치기', passage: '다음 라운드 열기' };
+  if (state.phase === 'question' && state.puzzle?.kind === 'word') labels.question = '낱말 정답 공개';
   const advance = labels[state.phase]
     ? '<button type="button" class="button" data-action="advance">' + labels[state.phase] + '</button>' : '';
-  const extend = state.phase === 'question' ? '<button type="button" class="button" data-action="extend">풀이 +30초</button>' : '';
+  const extend = state.phase === 'question' && state.endsIn !== null ? '<button type="button" class="button" data-action="extend">풀이 +30초</button>' : '';
   return '<footer class="admin-bar"><p class="status-line" id="submitted-count"></p>' + advance +
     extend + '<button type="button" class="button quiet" data-action="pause">일시정지</button></footer>';
 }
@@ -188,7 +189,16 @@ function submitRow(question) {
     '<p id="live-result" class="live-result" role="status" hidden></p>';
 }
 
+function wordConsole(q) {
+  const list = '<ol class="signal-list">' + q.hints.map(h => '<li><b>' + escape(h.word) + '</b><span>연관도 ' + h.percent + '%</span></li>').join('') + '</ol>';
+  if (host) return list + '<p>각 학생의 화면에서 오답을 낼 때마다 단서가 하나씩 열립니다.</p>';
+  if (state.me.submitted) return list + '<p role="status">' + (state.me.result ? '송신 성공! 정답을 찾았어요.' : '다섯 번의 기회를 모두 썼어요. 방송이 끝날 때까지 함께 기다려 주세요.') + '</p>';
+  return list + '<form id="word-form"><label for="word-guess">내가 생각한 낱말</label><input id="word-guess" required maxlength="16" autocomplete="off" placeholder="한글로 입력"><button class="button primary">정답 외치기</button></form><p role="status">' +
+    (q.attempts ? '아직 정답이 아니에요. 새 단서를 확인하세요. ' : '') + '남은 기회 ' + (5-q.attempts) + '번</p>';
+}
+
 function activity(question) {
+  if (question.kind === 'word') return wordConsole(question);
   const { board, panel } = question.kind === 'memory' ? {
     board: memoryGrid(question, false),
     panel: '<h2>찾을 그림</h2>' + targets(question) + '<p>' + (host ? '학생이 세 칸을 순서대로 누릅니다.' :
@@ -199,14 +209,16 @@ function activity(question) {
 
 function tapeFragment() {
   const words = ['축제에 와 준', ' 여러분,', ' 마지막 곡까지', ' 함께해 줘서 고마워요.', ' 이상으로', ' 오늘의', ' 축제 방송을', ' 마칩니다.'];
+  if (state.questionCount === 11) words.splice(4, 0, ' 여러분 덕분에', ' 무대가 빛났어요.');
   const end = state.questionId + 1;
   if (end < 1 || end > words.length) return '';
   const recovered = words.slice(0, end).join('');
-  return '<details class="tape-fragment"><summary>▶ 복구된 방송 확인 · ' + end + '/8</summary><p>' +
+  return '<details class="tape-fragment"><summary>▶ 복구된 방송 확인 · ' + end + '/' + words.length + '</summary><p>' +
     escape(recovered) + (end < words.length ? ' ▒▒…' : '') + '</p></details>';
 }
 
 function reveal(question) {
+  if (question.kind === 'word') return '<h2>복구된 낱말 · ' + escape(question.answer) + '</h2><p>' + escape(question.explanation) + '</p>';
   const visual = question.kind === 'memory' ? memoryGrid(question, true, question.correct) :
     archiveActivity(question, draft, host, true, escape).board;
   const result = state.me ? '<span class="result-label">' + (state.me.result === true ? '정답을 맞혔어요' :
@@ -227,7 +239,7 @@ function playing() {
   const evidence = ['study', 'question'].includes(state.phase) && question.evidence
     ? '<p class="case-note">' + escape(question.evidence) + '</p>' : '';
   const finalNote = state.phase === 'intro' && state.round === state.roundCount ? '<p class="final-note">' + (host
-    ? '결승 진출 ' + (state.finalists ?? 0) + '명. 모두 같은 마지막 문제를 풀어요.'
+    ? '결승 진출 ' + (state.finalists ?? 0) + '명. 각자 마지막 문제에 도전해요.'
     : state.area === 'finalist' ? '결승 진출! 이 문제를 맞히면 우승이에요.' : '결승에는 못 갔지만, 마지막 문제로 내 점수에 도전해요.') + '</p>' : '';
   const board = host && ['question', 'reveal'].includes(state.phase)
     ? '<section class="live-board" aria-label="학생별 채점 현황"><h2>실시간 채점</h2><ul id="live-board"></ul></section>' : '';
@@ -237,6 +249,7 @@ function playing() {
 }
 
 function storyText(story) {
+  if (story.closing) return '<div class="last-air"><small>● ON AIR</small><h2>' + escape(story.closing) + '</h2><p>“이상으로 오늘의 축제 방송을 마칩니다.”</p><p class="door-cue">철컥. 복도에 불이 켜지고, 기록실 문이 열립니다.</p>' + ('speechSynthesis' in window ? '<button class="button quiet" type="button" data-action="play-closing">▶ 마지막 방송 듣기</button>' : '') + '</div>';
   const lines = story.lines.map(line => '<p>' + escape(line) + '</p>').join('');
   const quote = story.quote ? '<blockquote>“' + escape(story.quote) + '”</blockquote>' : '';
   return '<div class="story-text">' + lines + quote + '</div>';
@@ -250,9 +263,9 @@ function storyScreen() {
 
 function passage() {
   const text = state.round < state.roundCount ? '' :
-    host ? '결승 진출 ' + state.finalists + '명. 모두 같은 마지막 문제를 풀어요.' :
+    host ? '결승 진출 ' + state.finalists + '명. 각자 마지막 문제에 도전해요.' :
     state.area === 'finalist' ? '결승 진출! 마지막 문제에서 우승에 도전해요.' :
-    state.area === 'record' ? '마지막 문제도 계속 풀고 내 점수에 도전해요.' : '모두 같은 마지막 문제를 풀어요.';
+    state.area === 'record' ? '마지막 문제도 계속 풀고 내 점수에 도전해요.' : '각자 마지막 문제에 도전해요.';
   return sceneHeader(state.story?.title ?? '다음 라운드', state.round + '라운드') +
     '<p id="paused-note" class="paused-note" hidden>진행자가 게임을 잠시 멈췄어요.</p>' +
     '<div class="scene-body">' + (state.story ? storyText(state.story) : '') +
@@ -277,6 +290,8 @@ function answerReady() {
     case 'wire': return true;
     case 'switches': return draft.changes.length === 3;
     case 'compare': return question.hiddenCount ? draft.changes.length > 0 : draft.changes.length === 4;
+    case 'testimony': return draft.sequence.length === 1;
+    case 'remix':
     case 'order': return draft.sequence.length === question.places.length;
     case 'lock': return draft.lock.length === 4;
     default: return false;
@@ -284,6 +299,7 @@ function answerReady() {
 }
 
 function sync() {
+  for (const control of scene.querySelectorAll('#word-form input,#word-form button')) control.disabled = busy || state.paused;
   const pauseNotice = find('paused-note');
   if (pauseNotice) pauseNotice.hidden = !state.paused;
   const counter = find('submitted-count');
@@ -408,8 +424,9 @@ function accept(next, sequence) {
   find('room-badge').hidden = false;
   find('room-badge').textContent = state.code;
   if (newQuestion) draft = savedDraft();
-  if (state.phaseId !== phase) {
-    phase = state.phaseId;
+  const renderPhase = state.puzzle?.kind === 'word' ? [state.phaseId, state.puzzle.attempts, state.me?.submitted].join('/') : state.phaseId;
+  if (renderPhase !== phase) {
+    phase = renderPhase;
     window.dispatchEvent(new CustomEvent('room-phase', { detail: { phase: state.phase, kind: state.puzzle?.kind ?? null } }));
     scene.className = state.puzzle ? 'scene record-sheet ' + state.puzzle.kind :
       ['story', 'epilogue', 'passage', 'finish'].includes(state.phase) ? 'scene record-sheet story-sheet' : 'scene';
@@ -565,7 +582,8 @@ function handleSelection(button) {
       notice('선택한 칸 하나를 빼고 다시 골라 주세요.');
       return true;
     }
-  } else if (place !== undefined) draft.sequence.push(place);
+  } else if (place !== undefined && state.puzzle.kind === 'testimony') draft.sequence = [place];
+  else if (place !== undefined) draft.sequence.push(place);
   else if (orderSlot !== undefined) draft.sequence.splice(Number(orderSlot), 1);
   else if (lockSymbol !== undefined) {
     if (draft.lock.length === 4) { notice('그림 하나를 빼고 다시 골라 주세요.'); return true; }
@@ -591,16 +609,37 @@ function submission() {
     case 'wire': return currentTurns(state.puzzle, draft);
     case 'switches':
     case 'compare': return draft.changes;
+    case 'testimony':
+    case 'remix':
     case 'order': return draft.sequence;
     case 'lock': return draft.lock;
   }
 }
+
+scene.addEventListener('submit', event => {
+  if (event.target.id !== 'word-form') return;
+  event.preventDefault();
+  if (!studentCanEdit()) return;
+  const input = find('word-guess');
+  const guess = input.value.trim().normalize('NFC');
+  if (!/^[가-힣]{1,16}$/.test(guess)) { notice('한글 낱말 하나를 입력하세요.'); return; }
+  action('answer', { questionId: state.questionId, answer: guess, attempt: state.puzzle.attempts });
+});
 
 scene.addEventListener('click', async event => {
   const button = event.target.closest('button');
   if (performance.now() < skipClick && button?.matches('[data-fit-cell], [data-fit-piece]')) return;
   if (!button || !state || button.disabled || handleSelection(button)) return;
   switch (button.dataset.action) {
+    case 'play-closing': {
+      if (!state.story?.closing) break;
+      const voice = new SpeechSynthesisUtterance(state.story.closing + ' 이상으로 오늘의 축제 방송을 마칩니다.');
+      voice.lang = 'ko-KR';
+      voice.onerror = () => notice('이 기기에서는 화면의 자막으로 방송을 확인해 주세요.');
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(voice);
+      break;
+    }
     case 'copy': {
       const address = find('join-address');
       try {

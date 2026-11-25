@@ -99,8 +99,8 @@ function orderActivity(question, draft, host, reveal, escape) {
       '<button type="button" class="button quiet" data-order-slot="' + index + '" data-archive-edit data-not-ready="' +
       !order[index] + '"' + (host ? ' disabled' : '') + '>' + escape(name) + '</button>') + '</li>';
   }).join('') + '</ol>';
-  return { board: list + (reveal ? slots : ''), panel: '<h2>이동 순서</h2>' + slots + choices +
-    '<p>이미 채운 칸을 누르면 그 장소를 뺄 수 있어요.</p>' };
+  return { board: list + (reveal ? slots : ''), panel: '<h2>' + (question.kind === 'remix' ? '악기 순서' : '이동 순서') + '</h2>' + slots + choices +
+    '<p>이미 채운 칸을 누르면 선택을 취소할 수 있어요.</p>' };
 }
 
 export function lockExample() {
@@ -153,6 +153,13 @@ export function archiveActivity(question, draft, host, reveal, escape) {
       return { board: '<div class="lamp-grid">' + buttons + '</div>', panel: '<h2>선택한 스위치</h2><p>' + (chosen.map(i => String.fromCharCode(65 + i)).join(' · ') || '아직 없어요') + ' (' + chosen.length + '/3)</p><p>선택한 스위치를 다시 누르면 그 효과가 취소돼요.</p>' };
     }
     case 'compare': return compareActivity(question, draft, host, reveal, escape);
+    case 'testimony': {
+      const picked = reveal ? question.correct : draft.sequence;
+      const board = '<ul class="note-list">' + question.notes.map(note => '<li>' + escape(note) + '</li>').join('') + '</ul>';
+      const panel = question.places.map(place => '<button type="button" class="button quiet" data-place="' + place.id + '" data-archive-edit aria-pressed="' + picked.includes(place.id) + '"' + (host ? ' disabled' : '') + '>' + (picked.includes(place.id) ? '✓ ' : '') + escape(place.name) + '</button>').join(' ');
+      return { board, panel };
+    }
+    case 'remix':
     case 'order': return orderActivity(question, draft, host, reveal, escape);
     case 'lock': return lockActivity(question, draft, host, reveal, escape);
     default: return null;
