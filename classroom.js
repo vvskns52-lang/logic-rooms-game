@@ -1,5 +1,5 @@
 import { apiBase, publicKey } from './online-config.js';
-import { archiveActivity, currentTurns, fitPieceMarkup } from './archive-activities.mjs?v=broadcast-1';
+import { archiveActivity, currentTurns, fitPieceMarkup } from './archive-activities.mjs?v=legible-1';
 import { fitLayout, pieceSquares } from './spatial-tools.mjs';
 
 const find = id => document.getElementById(id);
@@ -333,6 +333,63 @@ function sync() {
   }
 }
 
+const studentInstructions = {
+  "memory": {
+    "intro": "사진에 있는 그림 아홉 개의 위치를 기억하세요.",
+    "steps": [
+      "사진이 사라지면 그림 세 개가 나옵니다.",
+      "왼쪽 그림부터, 사진에서 그 그림이 있던 칸을 누르세요."
+    ],
+    "prompt": "그림 세 개를 왼쪽부터 보고, 각각 어디에 있었는지 빈 판에서 누르세요."
+  },
+  "fit": {
+    "intro": "다섯 조각을 모두 써서 빈칸을 채우세요. 빗금 칸은 비워 두세요.",
+    "steps": [
+      "조각을 고르세요. 방향을 바꾸려면 ‘90° 돌리기’를 누르세요.",
+      "조각의 ● 표시를 놓을 칸을 누르세요. 직접 끌어다 놓아도 됩니다."
+    ],
+    "prompt": "조각을 겹치지 않게 놓아 빈칸을 모두 채우세요."
+  },
+  "wire": {
+    "intro": "끊어진 스피커 선을 이으세요. 선은 모든 타일을 지나야 합니다.",
+    "steps": [
+      "타일을 한 번 누르면 시계 방향으로 90° 돌아갑니다.",
+      "시작점에서 끝점까지 선이 끊긴 곳이 없는지 확인하세요."
+    ],
+    "prompt": "타일을 돌려 모든 칸을 지나는 선 하나를 만드세요."
+  },
+  "switches": {
+    "intro": "스위치를 누르면 그 칸과 상하좌우로 붙은 칸의 불이 바뀝니다.",
+    "steps": [
+      "켜진 불은 꺼지고, 꺼진 불은 켜집니다.",
+      "서로 다른 스위치 세 개를 고르세요. 고른 스위치를 다시 누르면 선택이 취소됩니다."
+    ],
+    "prompt": "스위치 세 개를 눌러 가운데 전구(E)만 켜진 상태로 만드세요."
+  },
+  "order": {
+    "intro": "테이프는 다섯 장소를 한 번씩 거쳤습니다. 메모 네 줄이 이동 순서를 알려 줍니다.",
+    "steps": [
+      "테이프가 처음 있던 장소부터 차례대로 누르세요.",
+      "순서를 바꾸려면 이미 채운 칸을 눌러 그 장소를 빼세요."
+    ],
+    "prompt": "메모 네 줄을 모두 만족하도록 장소 다섯 곳을 순서대로 고르세요.",
+    "notes": [
+      "창가와 책상 사이에 다른 장소 한 곳을 거쳤다.",
+      "철제함을 떠난 직후 방송실로 갔다.",
+      "책상과 철제함에 가기 전에 카트를 거쳤다.",
+      "창가를 거친 뒤에 카트로 갔다."
+    ]
+  },
+  "lock": {
+    "intro": "표의 각 줄은 누군가 암호를 한 번 입력한 기록입니다. 네 기록을 모두 만족하는 암호를 찾으세요.",
+    "steps": [
+      "‘자리까지’는 그림과 위치가 모두 맞은 개수입니다.",
+      "‘그림만’은 암호에 들어 있지만 위치가 틀린 그림의 개수입니다."
+    ],
+    "prompt": "암호에 들어갈 그림 네 개를 순서대로 누르세요. 같은 그림은 두 번 쓸 수 없습니다."
+  }
+};
+
 function accept(next, sequence) {
   if (sequence < accepted) return;
   if (next.format !== 4) throw new Error('게임 화면을 새로고침해 주세요.');
@@ -342,6 +399,7 @@ function accept(next, sequence) {
     notice('');
   }
   const newQuestion = !state || state.questionId !== next.questionId;
+  if (next.puzzle) Object.assign(next.puzzle, studentInstructions[next.puzzle.kind]);
   state = next;
   receivedAt = performance.now();
   find('entry').hidden = true;

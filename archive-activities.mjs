@@ -11,7 +11,7 @@ export function fitPieceMarkup(piece, turn) {
   return '<span class="piece-diagram piece-' + piece.id + '" style="--piece-width:' + width +
     ';--piece-height:' + height + '" aria-hidden="true">' +
     cells.map(([x, y], index) => '<i style="grid-area:' + (y + 1) + '/' + (x + 1) + '">' +
-      (index === 0 ? '·' : '') + '</i>').join('') + '</span>';
+      (index === 0 ? '●' : '') + '</i>').join('') + '</span>';
 }
 
 function fitActivity(question, draft, host, reveal) {
@@ -22,7 +22,7 @@ function fitActivity(question, draft, host, reveal) {
       const position = x + ',' + y;
       const piece = occupied.get(position);
       const tone = piece ? ' piece-' + piece : '';
-      const marker = assignments.find(item => item.id === piece && item.x === x && item.y === y) ? '·' : '';
+      const marker = piece ?? '';
       if (!active) return '<span class="fit-void" aria-hidden="true"></span>';
       if (reveal) return '<span class="fit-cell' + tone + '">' + marker + '</span>';
       return '<button type="button" class="fit-cell' + tone + '" data-fit-cell="' + position + '" data-archive-edit ' +
@@ -35,7 +35,7 @@ function fitActivity(question, draft, host, reveal) {
     return '<button type="button" class="piece-choice" data-fit-piece="' + piece.id + '" data-archive-edit aria-label="' +
       '조각 ' + piece.id + (placed ? ', 놓음' : '') + '" aria-pressed="' + (piece.id === draft.piece) + '"' +
       (host ? ' disabled' : '') + '>' + fitPieceMarkup(piece, draft.turns[piece.id] ?? 0) +
-      '<span>' + piece.id + (placed ? ' · 놓음' : '') + '</span></button>';
+      '<span>' + piece.id + (piece.id === draft.piece ? ' · 선택' : placed ? ' · 놓음' : '') + '</span></button>';
   }).join('') + '</div>';
   const buttons = host ? '' : '<div class="archive-actions"><button type="button" class="button" data-fit-tool="rotate" data-archive-edit data-not-ready="' +
     (!draft.piece) + '">90° 돌리기</button><button type="button" class="button quiet" data-fit-tool="remove" data-archive-edit data-not-ready="' +
@@ -43,7 +43,7 @@ function fitActivity(question, draft, host, reveal) {
   return {
     board: board + '<p class="board-count">놓은 조각 ' + assignments.length + ' / ' + question.pieces.length + '</p>',
     panel: '<h2>조각 고르기</h2>' + tray + buttons +
-      '<p>조각의 점이 놓일 칸을 누르세요. 조각을 직접 끌어서 옮겨도 돼요.</p>',
+      '<p>조각을 고른 뒤 ● 표시를 놓을 칸을 누르세요. 빗금 칸은 비워 두세요.</p>',
   };
 }
 
