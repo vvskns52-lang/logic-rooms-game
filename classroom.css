@@ -533,3 +533,6 @@ button.memory-cell { color: var(--muted); font-size: 1rem; }
 @media (prefers-reduced-motion: reduce) {
   .record-sheet .button { transition: none; }
 }
+
+.lamp-grid {display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:360px}.lamp-key {display:grid;gap:4px;min-height:70px;background:#28312e;color:#eee}.lamp-key[data-on="1"] {background:#e4cf8e;color:#201d14}.lamp-key[aria-pressed="true"] {outline:2px dashed currentColor;outline-offset:-6px}
+.tape-fragment{margin-top:1rem;border-top:1px solid currentColor;padding-top:.6rem}.tape-fragment summary{cursor:pointer;min-height:44px;align-content:center}.tape-fragment p{font-family:monospace;letter-spacing:.06em}

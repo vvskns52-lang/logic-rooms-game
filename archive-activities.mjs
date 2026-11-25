@@ -131,6 +131,15 @@ export function archiveActivity(question, draft, host, reveal, escape) {
   switch (question.kind) {
     case 'fit': return fitActivity(question, draft, host, reveal);
     case 'wire': return wireActivity(question, draft, host, reveal);
+    case 'switches': {
+      const chosen = reveal ? question.correct : draft.changes;
+      const buttons = question.lamps.map((start, i) => {
+        const flips = chosen.filter(j => Math.abs(i % 3 - j % 3) + Math.abs(Math.floor(i / 3) - Math.floor(j / 3)) <= 1).length;
+        const on = (start + flips) % 2;
+        return '<button type="button" class="button lamp-key" data-drawer="' + i + '" data-archive-edit aria-pressed="' + chosen.includes(i) + '" data-on="' + on + '"' + (host || reveal ? ' disabled' : '') + '>' + String.fromCharCode(65 + i) + '<small>' + (on ? '● 켜짐' : '○ 꺼짐') + '</small></button>';
+      }).join('');
+      return { board: '<div class="lamp-grid">' + buttons + '</div>', panel: '<h2>선택한 스위치</h2><p>' + (chosen.map(i => String.fromCharCode(65 + i)).join(' · ') || '아직 없어요') + ' (' + chosen.length + '/3)</p><p>선택한 스위치를 다시 누르면 그 효과가 취소돼요.</p>' };
+    }
     case 'compare': return compareActivity(question, draft, host, reveal, escape);
     case 'order': return orderActivity(question, draft, host, reveal, escape);
     case 'lock': return lockActivity(question, draft, host, reveal, escape);

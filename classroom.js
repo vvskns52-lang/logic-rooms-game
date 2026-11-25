@@ -1,5 +1,5 @@
 import { apiBase, publicKey } from './online-config.js';
-import { archiveActivity, currentTurns, fitPieceMarkup } from './archive-activities.mjs';
+import { archiveActivity, currentTurns, fitPieceMarkup } from './archive-activities.mjs?v=broadcast-1';
 import { fitLayout, pieceSquares } from './spatial-tools.mjs';
 
 const find = id => document.getElementById(id);
@@ -197,6 +197,15 @@ function activity(question) {
   return '<div class="stage-layout"><div>' + board + '</div><section class="task-panel">' + panel + submitRow(question) + '</section></div>';
 }
 
+function tapeFragment() {
+  const words = ['축제에 와 준', ' 여러분,', ' 마지막 곡까지', ' 함께해 줘서 고마워요.', ' 이상으로', ' 오늘의', ' 축제 방송을', ' 마칩니다.'];
+  const end = state.questionId + 1;
+  if (end < 1 || end > words.length) return '';
+  const recovered = words.slice(0, end).join('');
+  return '<details class="tape-fragment"><summary>▶ 복구된 방송 확인 · ' + end + '/8</summary><p>' +
+    escape(recovered) + (end < words.length ? ' ▒▒…' : '') + '</p></details>';
+}
+
 function reveal(question) {
   const visual = question.kind === 'memory' ? memoryGrid(question, true, question.correct) :
     archiveActivity(question, draft, host, true, escape).board;
@@ -205,7 +214,7 @@ function reveal(question) {
   return '<div class="stage-layout solution-layout"><div>' + visual + '</div><section class="task-panel">' + result +
     '<div class="solution-text">' + escape(question.answer) + '</div><div class="explanation">' +
     escape(question.explanation) + '</div>' + (question.discovery ?
-      '<p class="discovery">' + escape(question.discovery) + '</p>' : '') + '</section></div>';
+      '<p class="discovery">' + escape(question.discovery) + '</p>' : '') + tapeFragment() + '</section></div>';
 }
 
 function playing() {
@@ -266,6 +275,7 @@ function answerReady() {
     case 'memory': return draft.memory.length === 3;
     case 'fit': return draft.placements.length === question.pieces.length;
     case 'wire': return true;
+    case 'switches': return draft.changes.length === 3;
     case 'compare': return question.hiddenCount ? draft.changes.length > 0 : draft.changes.length === 4;
     case 'order': return draft.sequence.length === question.places.length;
     case 'lock': return draft.lock.length === 4;
@@ -492,9 +502,9 @@ function handleSelection(button) {
   } else if (drawer !== undefined) {
     const index = Number(drawer);
     if (draft.changes.includes(index)) draft.changes = draft.changes.filter(item => item !== index);
-    else if (state.puzzle.hiddenCount || draft.changes.length < 4) draft.changes.push(index);
+    else if (state.puzzle.hiddenCount || draft.changes.length < (state.puzzle.kind === 'switches' ? 3 : 4)) draft.changes.push(index);
     else {
-      notice('선택한 서랍 하나를 빼고 다시 골라 주세요.');
+      notice('선택한 칸 하나를 빼고 다시 골라 주세요.');
       return true;
     }
   } else if (place !== undefined) draft.sequence.push(place);
@@ -521,6 +531,7 @@ function submission() {
     case 'memory': return draft.memory;
     case 'fit': return draft.placements;
     case 'wire': return currentTurns(state.puzzle, draft);
+    case 'switches':
     case 'compare': return draft.changes;
     case 'order': return draft.sequence;
     case 'lock': return draft.lock;
