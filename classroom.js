@@ -1,9 +1,11 @@
 import { apiBase, publicKey } from './online-config.js';
+import { archiveActivity, currentTurns, fitPieceMarkup } from './archive-activities.mjs';
+import { fitLayout, pieceSquares } from './spatial-tools.mjs';
 
 const find = id => document.getElementById(id);
 const url = new URL(location.href);
 const host = url.searchParams.get('host') === '1';
-const storageKey = host ? 'logic-rooms-host-v3' : 'logic-rooms-player-v3';
+const storageKey = host ? 'logic-rooms-host-v4' : 'logic-rooms-player-v4';
 const keyboardKey = 'logic-rooms-operator';
 const scene = find('scene');
 const guide = find('guide');
@@ -21,18 +23,19 @@ let noticeTimer = 0;
 let connectionLost = false;
 let configuredGuide = [];
 let draft = blankDraft();
+let pieceDrag = null;
+let skipClick = 0;
 
 function escape(value) {
   return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 }
 
 function blankDraft() {
-  return { memory: [], numbers: Array(8).fill(null), slot: 0, pairs: [], face: null,
-    corners: [[], []], corner: 0, times: [], choice: '', code: '' };
+  return { memory: [], piece: null, turns: {}, placements: [], wire: [], changes: [], sequence: [], lock: [] };
 }
 
 function draftKey() {
-  return 'logic-rooms-draft-v3:' + session?.code + ':' + state?.questionId;
+  return 'logic-rooms-draft-v4:' + session?.code + ':' + state?.questionId;
 }
 
 function savedDraft() {
@@ -93,6 +96,7 @@ function resetSession(error = '') {
   rememberSession(null);
   state = null;
   phase = null;
+  window.dispatchEvent(new CustomEvent('room-phase', { detail: { phase: 'entry', kind: null } }));
   accepted = ++issued;
   find('entry').hidden = false;
   find('live').hidden = true;
@@ -115,11 +119,13 @@ function activityTitle(question) {
 
 function controls() {
   if (!host || ['lobby', 'finish'].includes(state.phase)) return '';
-  const labels = { story: '첫 문제 열기', intro: '설명 마치기', reveal: '풀이 마치기', passage: '다음 라운드 열기' };
+  const labels = { story: '첫 문제 열기', intro: '설명 마치기', study: '암기 건너뛰기', question: '문제 넘기기',
+    reveal: '풀이 마치기', passage: '다음 라운드 열기' };
   const advance = labels[state.phase]
     ? '<button type="button" class="button" data-action="advance">' + labels[state.phase] + '</button>' : '';
+  const extend = state.phase === 'question' ? '<button type="button" class="button" data-action="extend">풀이 +30초</button>' : '';
   return '<footer class="admin-bar"><p class="status-line" id="submitted-count"></p>' + advance +
-    '<button type="button" class="button quiet" data-action="pause">일시정지</button></footer>';
+    extend + '<button type="button" class="button quiet" data-action="pause">일시정지</button></footer>';
 }
 
 function lobby() {
@@ -174,167 +180,31 @@ function study(question) {
     '<p id="study-mask" hidden>기억판이 잠겼어요.</p></section></div>';
 }
 
-function mathBoard() {
-  return '<div class="math-grid" aria-label="두 자리 수 네 개"><span></span><span class="position-title">십의 자리</span><span class="position-title">일의 자리</span>' +
-    Array.from({ length: 4 }, (_, row) => '<span class="row-title">' + (row + 1) + '번째</span>' +
-      [0, 1].map(column => {
-        const index = row * 2 + column;
-        const value = draft.numbers[index];
-        return '<button type="button" class="number-slot" data-slot="' + index + '" aria-label="' + (row + 1) + '번째 수 ' +
-          (column === 0 ? '십의 자리' : '일의 자리') + (value === null ? ', 빈 칸' : ', ' + value) +
-          '" aria-pressed="' + (index === draft.slot) + '"' + (host ? ' disabled' : '') + '>' + (value ?? '') + '</button>';
-      }).join('')).join('') + '</div>';
-}
-
-function mathControls(question) {
-  const placed = draft.numbers.filter(digit => digit !== null);
-  const complete = placed.length === 8;
-  const total = draft.numbers.reduce((sum, value, index) => sum + (value ?? 0) * (index % 2 === 0 ? 10 : 1), 0);
-  const highest = Math.max(...[0, 2, 4, 6].map(index => (draft.numbers[index] ?? 0) * 10 + (draft.numbers[index + 1] ?? 0)));
-  return '<h2>숫자 카드</h2><p>숫자가 든 칸을 누르면 카드를 뺄 수 있어요.</p><div class="digit-bank">' +
-    question.digits.map(digit => '<button type="button" class="digit-card" data-digit="' + digit + '"' +
-      (host || placed.includes(digit) ? ' disabled' : '') + '>' + digit + '</button>').join('') + '</div>' +
-    '<div class="running-sum"><span>목표 <b>' + question.target + '</b></span><span>현재 합 <b>' +
-    (complete ? total : '—') + '</b></span><span>' + (question.minimizeLargest ? '가장 큰 수' : '차이') +
-    ' <b>' + (complete ? question.minimizeLargest ? highest : Math.abs(total - question.target) : '—') + '</b></span></div>';
-}
-
-function cubeNet(question, pairs = draft.pairs, reveal = false) {
-  return '<div class="cube-net" aria-label="정육면체 전개도">' + question.faces.map(face => {
-    const pair = pairs.findIndex(items => items.includes(face.id));
-    const style = 'grid-area:' + face.row + '/' + face.column;
-    const className = 'face' + (pair >= 0 ? ' pair-' + (pair + 1) : '');
-    if (reveal) return '<div class="' + className + '" style="' + style + '">' + face.id + '</div>';
-    return '<button type="button" class="' + className + '" data-face="' + face.id + '" style="' + style + '" aria-label="' +
-      face.id + ' 면' + (pair < 0 ? '' : ', ' + (pair + 1) + '번째 짝') + '" aria-pressed="' + (draft.face === face.id) +
-      '"' + (host ? ' disabled' : '') + '>' + face.id + '</button>';
-  }).join('') + '</div>';
-}
-
-function pairList(pairs) {
-  return '<div class="pair-list">' + pairs.map((pair, index) =>
-    '<span class="pair-' + (index + 1) + '">' + escape(pair.join('–')) + '</span>').join('') + '</div>';
-}
-
-function cornerNet(question, reveal = false) {
-  const marked = reveal ? question.correct : draft.corners;
-  return '<div class="cube-net corner-net" aria-label="정육면체 전개도">' + question.faces.map(face => {
-    const style = 'grid-area:' + face.row + '/' + face.column;
-    if (face.id === 'B') {
-      return '<div class="face base-face" style="' + style + '">B<span class="corner-marker left">①</span><span class="corner-marker right">②</span></div>';
-    }
-    const chosen = marked[draft.corner]?.includes(face.id);
-    if (reveal) return '<div class="face" style="' + style + '">' + face.id + '</div>';
-    return '<button type="button" class="face' + (chosen ? ' pair-' + (draft.corner + 1) : '') + '" style="' + style +
-      '" data-corner-face="' + face.id + '" aria-label="' + face.id + ' 면" aria-pressed="' + Boolean(chosen) + '"' +
-      (host ? ' disabled' : '') + '>' + face.id + '</button>';
-  }).join('') + '</div>';
-}
-
-function cornerChoices(question, choices, reveal = false) {
-  return '<div class="corner-choices">' + question.cornerNames.map((name, index) => {
-    const label = escape(name) + ' <strong>' + (choices[index].length ? escape(choices[index].join(' · ')) : '—') + '</strong>';
-    return reveal ? '<div class="corner-answer">' + label + '</div>' :
-      '<button type="button" class="button" data-corner="' + index + '" aria-pressed="' +
-      (index === draft.corner) + '"' + (host ? ' disabled' : '') + '>' + label + '</button>';
-  }).join('') + '</div>';
-}
-
-function timeBoard(question, reveal = false) {
-  const selected = reveal ? question.correct : draft.times;
-  return '<div class="time-board" aria-label="알림이 울린 시각">' + question.times.map(time => {
-    const chosen = selected.includes(time);
-    return reveal ? '<span class="time-chip' + (chosen ? ' selected' : '') + '">' + time + '분</span>' :
-      '<button type="button" class="time-chip' + (chosen ? ' selected' : '') + '" data-time="' + time +
-      '" aria-pressed="' + chosen + '"' + (host ? ' disabled' : '') + '>' + time + '분</button>';
-  }).join('') + '</div>';
-}
-
-function readingsTable(question, reveal = false) {
-  return '<table class="clue-table readings"><thead><tr><th scope="col">장치</th><th scope="col">시작</th>' +
-    '<th scope="col">중간</th><th scope="col">마지막</th></tr></thead><tbody>' + question.readings.map(row => {
-    const chosen = row.id === (reveal ? question.correct : draft.choice);
-    const control = reveal ? row.id : '<button type="button" class="button quiet" data-record="' + row.id +
-      '" aria-label="' + row.id + ' 장치 고르기" aria-pressed="' + chosen + '"' + (host ? ' disabled' : '') + '>' + row.id + '</button>';
-    return '<tr class="' + (chosen ? 'selected' : '') + '"><th scope="row">' + control + '</th>' +
-      row.data.map(value => '<td>' + value + '</td>').join('') + '</tr>';
-  }).join('') + '</tbody></table>';
-}
-
-function clueTable(question) {
-  return '<table class="clue-table"><thead><tr><th scope="col">시도</th><th scope="col">위치까지 맞음</th><th scope="col">숫자만 맞음</th></tr></thead><tbody>' +
-    question.records.map(row => '<tr><td>' + escape(row.guess) + '</td><td>' + row.exact + '개</td><td>' + row.moved + '개</td></tr>').join('') + '</tbody></table>';
-}
-
 function submitRow(question) {
   if (host) return '';
-  const reset = question.kind === 'logic' ? '' : '<div class="reset-line"><button type="button" class="button quiet" data-action="reset">다시 선택</button></div>';
+  const label = question.kind === 'fit' ? '조각 초기화' : question.kind === 'wire' ? '타일 초기화' : '선택 지우기';
+  const reset = '<div class="reset-line"><button type="button" class="button quiet" data-action="reset">' + label + '</button></div>';
   return '<div class="answer-actions">' + reset + '<button type="button" class="button primary" data-action="answer">답 제출</button></div>';
 }
 
 function activity(question) {
-  let board;
-  let panel;
-  switch (question.kind) {
-    case 'memory':
-      board = memoryGrid(question, false);
-      panel = '<h2>세 자리 기억하기</h2>' + targets(question) + '<p>' + (host ? '학생들이 빈 칸을 찾아 순서대로 누릅니다.' :
-        '현재 ' + draft.memory.length + ' / 3칸을 골랐어요. 선택한 칸을 한 번 더 누르면 뺄 수 있어요.') + '</p>';
-      break;
-    case 'number':
-      board = mathBoard();
-      panel = mathControls(question);
-      break;
-    case 'shape':
-      board = cubeNet(question);
-      panel = '<h2>마주 보는 세 쌍</h2><p>' + (host ? '학생들이 전개도의 면을 두 개씩 짝지어요.' :
-        draft.face ? escape(draft.face) + ' 면과 마주 보는 면을 누르세요.' : '두 면을 차례로 눌러 짝지으세요.') + '</p>' +
-        pairList(draft.pairs) + '<p>이미 짝지은 면을 누르면 연결을 풀 수 있어요.</p>';
-      break;
-    case 'corner':
-      board = cornerNet(question);
-      panel = '<h2>꼭짓점별로 두 면</h2><p>① 또는 ②를 고른 뒤 전개도의 면을 두 개 누르세요.</p>' +
-        cornerChoices(question, draft.corners);
-      break;
-    case 'schedule':
-      board = timeBoard(question);
-      panel = '<h2>울린 간격</h2><p>' + question.intervals.join('분 · ') + '분</p><p>정확히 두 알림이 겹친 시각을 모두 골라요.</p>' +
-        '<p class="section-label">' + draft.times.length + '개 선택</p>';
-      break;
-    case 'data':
-      board = readingsTable(question);
-      panel = '<h2>검사 기준</h2><ol class="checklist">' + question.conditions.map(condition =>
-        '<li>' + escape(condition) + '</li>').join('') + '</ol>';
-      break;
-    case 'logic':
-      board = clueTable(question);
-      panel = '<h2>비밀번호</h2><p>서로 다른 숫자 ' + (question.codeLength ?? 3) + '개를 입력해요.</p>' +
-        (host ? '' : '<label for="logic-code">비밀번호 입력</label><input id="logic-code" class="code-input" inputmode="numeric" maxlength="' +
-          (question.codeLength ?? 3) + '" autocomplete="off" value="' +
-          escape(draft.code) + '">');
-      break;
-  }
+  const { board, panel } = question.kind === 'memory' ? {
+    board: memoryGrid(question, false),
+    panel: '<h2>찾을 그림</h2>' + targets(question) + '<p>' + (host ? '학생이 세 칸을 순서대로 누릅니다.' :
+      draft.memory.length + ' / 3칸 선택. 고른 칸을 다시 누르면 뺄 수 있어요.') + '</p>',
+  } : archiveActivity(question, draft, host, false, escape);
   return '<div class="stage-layout"><div>' + board + '</div><section class="task-panel">' + panel + submitRow(question) + '</section></div>';
 }
 
 function reveal(question) {
-  let visual = '';
-  if (question.kind === 'memory') visual = memoryGrid(question, true, question.correct);
-  if (question.kind === 'number') {
-    const nums = [];
-    for (let index = 0; index < question.example.length; index += 2) nums.push(question.example[index] * 10 + question.example[index + 1]);
-    visual = '<div class="task-panel"><p class="answer-example">' + nums.join(' + ') + ' = ' + question.correct + '</p></div>';
-  }
-  if (question.kind === 'shape') visual = cubeNet(question, question.correct, true);
-  if (question.kind === 'corner') visual = cornerNet(question, true) + cornerChoices(question, question.correct, true);
-  if (question.kind === 'schedule') visual = timeBoard(question, true);
-  if (question.kind === 'data') visual = readingsTable(question, true);
-  if (question.kind === 'logic') visual = clueTable(question);
+  const visual = question.kind === 'memory' ? memoryGrid(question, true, question.correct) :
+    archiveActivity(question, draft, host, true, escape).board;
   const result = state.me ? '<span class="result-label">' + (state.me.result === true ? '정답을 맞혔어요' :
     state.me.result === false ? '내 답을 풀이와 비교해 보세요' : '이 문제의 답을 제출하지 않았어요') + '</span>' : '';
   return '<div class="stage-layout solution-layout"><div>' + visual + '</div><section class="task-panel">' + result +
     '<div class="solution-text">' + escape(question.answer) + '</div><div class="explanation">' +
-    escape(question.explanation) + '</div></section></div>';
+    escape(question.explanation) + '</div>' + (question.discovery ?
+      '<p class="discovery">' + escape(question.discovery) + '</p>' : '') + '</section></div>';
 }
 
 function playing() {
@@ -344,9 +214,11 @@ function playing() {
   if (state.phase === 'study') content = study(question);
   if (state.phase === 'question') content = '<p class="callout">' + escape(question.prompt) + '</p><div id="activity">' + activity(question) + '</div>';
   if (state.phase === 'reveal') content = reveal(question);
+  const evidence = ['study', 'question'].includes(state.phase) && question.evidence
+    ? '<p class="case-note">' + escape(question.evidence) + '</p>' : '';
   return sceneHeader(question.title, activityTitle(question)) +
     '<p id="paused-note" class="paused-note" hidden>진행자가 게임을 잠시 멈췄어요.</p><div class="scene-body">' +
-    content + '</div>' + controls();
+    evidence + content + '</div>' + controls();
 }
 
 function storyText(story) {
@@ -383,15 +255,14 @@ function finish() {
 }
 
 function answerReady() {
-  const length = state.puzzle?.codeLength ?? 3;
-  switch (state.puzzle?.kind) {
+  const question = state.puzzle;
+  switch (question?.kind) {
     case 'memory': return draft.memory.length === 3;
-    case 'number': return draft.numbers.every(digit => digit !== null);
-    case 'shape': return draft.pairs.length === 3;
-    case 'corner': return draft.corners.every(pair => pair.length === 2);
-    case 'schedule': return draft.times.length > 0;
-    case 'data': return Boolean(draft.choice);
-    case 'logic': return draft.code.length === length && /^\d+$/.test(draft.code) && new Set(draft.code).size === length;
+    case 'fit': return draft.placements.length === question.pieces.length;
+    case 'wire': return true;
+    case 'compare': return draft.changes.length === 4;
+    case 'order': return draft.sequence.length === question.places.length;
+    case 'lock': return draft.lock.length === 4;
     default: return false;
   }
 }
@@ -413,8 +284,7 @@ function sync() {
     pause.textContent = state.paused ? '계속 진행' : '일시정지';
     pause.disabled = busy;
   }
-  const advance = scene.querySelector('[data-action=advance]');
-  if (advance) advance.disabled = state.paused || busy;
+  for (const button of scene.querySelectorAll('[data-action=advance], [data-action=extend]')) button.disabled = state.paused || busy;
   const start = scene.querySelector('[data-action=start]');
   if (start) start.disabled = state.count < 1 || busy;
   const submit = scene.querySelector('[data-action=answer]');
@@ -422,14 +292,15 @@ function sync() {
     const locked = state.me.submitted || state.paused || busy;
     submit.disabled = locked || !answerReady();
     submit.textContent = state.me.submitted ? '제출 완료' : '답 제출';
-    for (const input of scene.querySelectorAll('[data-memory], [data-slot], [data-face], [data-corner-face], [data-corner], [data-time], [data-record], [data-action=reset], #logic-code')) input.disabled = locked;
-    for (const input of scene.querySelectorAll('[data-digit]')) input.disabled = locked || draft.numbers.includes(Number(input.dataset.digit));
+    for (const input of scene.querySelectorAll('[data-memory], [data-action=reset], [data-archive-edit]')) {
+      input.disabled = locked || input.dataset.notReady === 'true';
+    }
   }
 }
 
 function accept(next, sequence) {
   if (sequence < accepted) return;
-  if (next.format !== 3) throw new Error('게임 화면을 새로고침해 주세요.');
+  if (next.format !== 4) throw new Error('게임 화면을 새로고침해 주세요.');
   accepted = sequence;
   if (connectionLost) {
     connectionLost = false;
@@ -446,6 +317,7 @@ function accept(next, sequence) {
   if (newQuestion) draft = savedDraft();
   if (state.phaseId !== phase) {
     phase = state.phaseId;
+    window.dispatchEvent(new CustomEvent('room-phase', { detail: { phase: state.phase, kind: state.puzzle?.kind ?? null } }));
     scene.className = state.puzzle ? 'scene record-sheet ' + state.puzzle.kind : 'scene';
     scene.innerHTML = state.phase === 'lobby' ? lobby() :
       state.phase === 'finish' ? finish() : state.phase === 'passage' ? passage() :
@@ -464,6 +336,11 @@ function displayTime() {
     const text = Math.ceil(left / 1000) + '초';
     if (clock.textContent !== text) clock.textContent = text;
     find('timer-fill').style.transform = 'scaleX(' + Math.min(1, left / Math.max(1, state.duration)) + ')';
+    const urgent = state.phase === 'question' && left > 0 && left <= 10000 && !state.paused;
+    if (scene.classList.contains('urgent') !== urgent) {
+      scene.classList.toggle('urgent', urgent);
+      window.dispatchEvent(new CustomEvent('room-urgent', { detail: urgent }));
+    }
     const cards = find('study-cards');
     if (cards) {
       cards.hidden = left === 0 || state.paused;
@@ -518,7 +395,7 @@ async function enter(path, body, button) {
   button.disabled = true;
   setEntryError('');
   try {
-    const result = await request(path, { format: 3, ...body });
+    const result = await request(path, { format: 4, ...body });
     rememberSession({ code: result.code, token: result.token });
     if (result.state) accept(result.state, ++issued);
     else await poll();
@@ -531,9 +408,26 @@ async function enter(path, body, button) {
   }
 }
 
+function studentCanEdit() {
+  return !host && !busy && state?.phase === 'question' && !state.paused && !state.me?.submitted;
+}
+
+function placeFit(id, x, y) {
+  const question = state.puzzle;
+  const next = [...draft.placements.filter(item => item.id !== id),
+    { id, x, y, turn: draft.turns[id] ?? 0 }];
+  if (!fitLayout(question.frame, question.pieces, next)) {
+    notice('조각이 틀 밖에 있거나 다른 조각과 겹쳐요.');
+    return false;
+  }
+  draft.placements = next;
+  draft.piece = null;
+  return true;
+}
+
 function handleSelection(button) {
-  if (host || busy || state.paused || state.me.submitted || state.phase !== 'question') return false;
-  const { memory, slot, digit, face, corner, cornerFace, time, record } = button.dataset;
+  if (!studentCanEdit()) return false;
+  const { memory, fitPiece, fitCell, fitTool, wire, drawer, place, orderSlot, lockSymbol, lockSlot } = button.dataset;
   if (memory !== undefined) {
     const index = Number(memory);
     if (draft.memory.includes(index)) draft.memory = draft.memory.filter(item => item !== index);
@@ -542,68 +436,74 @@ function handleSelection(button) {
       notice('선택한 칸 하나를 빼고 다시 골라 주세요.');
       return true;
     }
-  } else if (slot !== undefined) {
-    draft.slot = Number(slot);
-    draft.numbers[draft.slot] = null;
-  } else if (digit !== undefined) {
-    const chosen = Number(digit);
-    if (!draft.numbers.includes(chosen)) draft.numbers[draft.slot] = chosen;
-    const next = draft.numbers.indexOf(null);
-    if (next >= 0) draft.slot = next;
-  } else if (face !== undefined) {
-    const paired = draft.pairs.findIndex(pair => pair.includes(face));
-    if (paired >= 0) {
-      draft.pairs.splice(paired, 1);
-      draft.face = face;
-    } else if (draft.face === face) draft.face = null;
-    else if (!draft.face) draft.face = face;
+  } else if (fitPiece !== undefined) {
+    draft.piece = fitPiece;
+  } else if (fitCell !== undefined) {
+    const [x, y] = fitCell.split(',').map(Number);
+    if (draft.piece) placeFit(draft.piece, x, y);
+    else if (button.dataset.fitFilled) draft.piece = button.dataset.fitFilled;
+    else notice('먼저 조각을 하나 골라 주세요.');
+  } else if (fitTool !== undefined) {
+    const id = draft.piece;
+    if (!id) return true;
+    const existing = draft.placements.find(item => item.id === id);
+    if (fitTool === 'remove') draft.placements = draft.placements.filter(item => item.id !== id);
     else {
-      draft.pairs.push([draft.face, face]);
-      draft.face = null;
+      draft.turns[id] = ((draft.turns[id] ?? 0) + 1) % 4;
+      if (existing) {
+        const updated = draft.placements.map(item => item.id === id ? { ...item, turn: draft.turns[id] } : item);
+        if (fitLayout(state.puzzle.frame, state.puzzle.pieces, updated)) draft.placements = updated;
+        else {
+          draft.placements = draft.placements.filter(item => item.id !== id);
+          notice('돌린 조각을 다시 놓아 주세요.');
+        }
+      }
     }
-  } else if (corner !== undefined) {
-    draft.corner = Number(corner);
-  } else if (cornerFace !== undefined) {
-    const pair = draft.corners[draft.corner];
-    if (pair.includes(cornerFace)) draft.corners[draft.corner] = pair.filter(item => item !== cornerFace);
-    else if (pair.length < 2) pair.push(cornerFace);
+  } else if (wire !== undefined) {
+    const index = Number(wire);
+    draft.wire = currentTurns(state.puzzle, draft).slice();
+    draft.wire[index] = (draft.wire[index] + 1) % 4;
+  } else if (drawer !== undefined) {
+    const index = Number(drawer);
+    if (draft.changes.includes(index)) draft.changes = draft.changes.filter(item => item !== index);
+    else if (draft.changes.length < 4) draft.changes.push(index);
     else {
-      notice('선택한 면 하나를 빼고 다시 골라 주세요.');
+      notice('선택한 서랍 하나를 빼고 다시 골라 주세요.');
       return true;
     }
-  } else if (time !== undefined) {
-    const minute = Number(time);
-    if (draft.times.includes(minute)) draft.times = draft.times.filter(item => item !== minute);
-    else draft.times.push(minute);
-  } else if (record !== undefined) {
-    draft.choice = record;
-  } else return false;
+  } else if (place !== undefined) draft.sequence.push(place);
+  else if (orderSlot !== undefined) draft.sequence.splice(Number(orderSlot), 1);
+  else if (lockSymbol !== undefined) {
+    if (draft.lock.length === 4) { notice('그림 하나를 빼고 다시 골라 주세요.'); return true; }
+    draft.lock.push(lockSymbol);
+  } else if (lockSlot !== undefined) draft.lock.splice(Number(lockSlot), 1);
+  else return false;
   refreshActivity(button);
   return true;
 }
 
 function refreshActivity(oldButton) {
   saveDraft();
-  const selection = oldButton && ['memory', 'slot', 'digit', 'face'].find(name => name in oldButton.dataset);
+  const selection = oldButton?.getAttributeNames().find(name => name.startsWith('data-') && name !== 'data-archive-edit');
   find('activity').innerHTML = activity(state.puzzle);
   sync();
-  if (selection) scene.querySelector('[data-' + selection + '="' + oldButton.dataset[selection] + '"]')?.focus({ preventScroll: true });
+  if (selection) scene.querySelector('[' + selection + '="' + CSS.escape(oldButton.getAttribute(selection)) + '"]')?.focus({ preventScroll: true });
 }
 
 function submission() {
   switch (state.puzzle.kind) {
     case 'memory': return draft.memory;
-    case 'number': return draft.numbers;
-    case 'shape': return draft.pairs;
-    case 'corner': return draft.corners;
-    case 'schedule': return draft.times;
-    case 'data': return draft.choice;
-    case 'logic': return draft.code;
+    case 'fit': return draft.placements;
+    case 'wire': return currentTurns(state.puzzle, draft);
+    case 'compare': return draft.changes;
+    case 'order': return draft.sequence;
+    case 'lock': return draft.lock;
   }
 }
 
 scene.addEventListener('click', async event => {
   const button = event.target.closest('button');
+  if (performance.now() < skipClick && button?.matches('[data-fit-cell], [data-fit-piece]')) return;
   if (!button || !state || button.disabled || handleSelection(button)) return;
   switch (button.dataset.action) {
     case 'copy': {
@@ -628,22 +528,92 @@ scene.addEventListener('click', async event => {
       if (state.phase === 'finish') resetSession();
       else action('leave');
       break;
+    case 'advance':
+      if (state.phase === 'question' && !confirm('지금 문제를 넘길까요?\n아직 제출하지 않은 학생은 이 문제를 놓치고, 바로 정답과 풀이가 열려요.')) break;
+      action('advance');
+      break;
     case 'start':
     case 'pause':
     case 'resume':
-    case 'advance':
+    case 'extend':
       action(button.dataset.action);
       break;
   }
 });
 
-scene.addEventListener('input', event => {
-  if (event.target.id !== 'logic-code') return;
-  draft.code = event.target.value.replace(/[^0-9]/g, '').slice(0, state.puzzle.codeLength ?? 3);
-  event.target.value = draft.code;
-  saveDraft();
-  sync();
+function fitCellAt(event) {
+  return document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-fit-cell]');
+}
+
+function clearFitHover() {
+  for (const cell of scene.querySelectorAll('.fit-hover, .fit-blocked')) cell.classList.remove('fit-hover', 'fit-blocked');
+}
+
+scene.addEventListener('pointerdown', event => {
+  skipClick = 0;
+  const pressed = event.target.closest('[data-fit-piece], [data-fit-cell]');
+  if (!pressed || pressed.disabled || event.button !== 0 || !studentCanEdit()) return;
+  pieceDrag = {
+    pointer: event.pointerId, button: pressed, id: pressed.dataset.fitPiece ?? pressed.dataset.fitFilled,
+    startX: event.clientX, startY: event.clientY, phase: state.phaseId, ghost: null,
+  };
 });
+
+window.addEventListener('pointermove', event => {
+  const drag = pieceDrag;
+  if (!drag?.id || drag.pointer !== event.pointerId || drag.phase !== state?.phaseId || !studentCanEdit()) return;
+  const { id } = drag;
+  const question = state.puzzle;
+  const piece = question.pieces.find(item => item.id === id);
+  const turn = draft.turns[id] ?? 0;
+  if (!drag.ghost) {
+    if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 9) return;
+    drag.ghost = document.createElement('div');
+    drag.ghost.className = 'piece-ghost';
+    drag.ghost.innerHTML = fitPieceMarkup(piece, turn);
+    document.body.append(drag.ghost);
+  }
+  drag.ghost.style.left = event.clientX + 'px';
+  drag.ghost.style.top = event.clientY + 'px';
+  clearFitHover();
+  const cell = fitCellAt(event);
+  if (!cell) return;
+  const [x, y] = cell.dataset.fitCell.split(',').map(Number);
+  const placement = { id, x, y, turn };
+  const next = [...draft.placements.filter(item => item.id !== id), placement];
+  const marker = fitLayout(question.frame, question.pieces, next) ? 'fit-hover' : 'fit-blocked';
+  for (const [cx, cy] of pieceSquares(piece, placement)) {
+    scene.querySelector('[data-fit-cell="' + cx + ',' + cy + '"]')?.classList.add(marker);
+  }
+});
+
+function endFitDrag(event) {
+  const drag = pieceDrag;
+  if (!drag || drag.pointer !== event.pointerId) return;
+  pieceDrag = null;
+  const canPlace = event.type === 'pointerup' && studentCanEdit() && drag.phase === state.phaseId;
+  if (!drag.ghost) {
+    if (canPlace && event.pointerType === 'touch' &&
+        document.elementFromPoint(event.clientX, event.clientY)?.closest('button') === drag.button) {
+      skipClick = performance.now() + 250;
+      handleSelection(drag.button);
+    }
+    return;
+  }
+  drag.ghost.remove();
+  clearFitHover();
+  skipClick = performance.now() + 250;
+  if (!canPlace) return;
+  const cell = fitCellAt(event);
+  if (!cell) return;
+  const [x, y] = cell.dataset.fitCell.split(',').map(Number);
+  draft.piece = drag.id;
+  placeFit(drag.id, x, y);
+  refreshActivity();
+}
+
+window.addEventListener('pointerup', endFitDrag);
+window.addEventListener('pointercancel', endFitDrag);
 
 const guideSelect = find('guide-question');
 function guideSelection() {
