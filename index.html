@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101127">
+  <meta name="description" content="같은 교실에서 함께 푸는 실시간 개인전 두뇌게임">
+  <link rel="icon" href="data:,">
+  <title>생각의 문</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="masthead">
+    <a class="brand" href="./" aria-label="생각의 문 처음 화면">
+      <span class="brand-symbol" aria-hidden="true"></span>
+      <span>생각의 문</span>
+    </a>
+    <div class="header-controls">
+      <button id="open-guide" class="compact" type="button" aria-haspopup="dialog" aria-controls="host-guide" hidden>정답·풀이</button>
+      <div id="top-status" class="top-status"></div>
+    </div>
+  </header>
+  <main id="home" class="page home">
+    <section class="entry">
+      <div id="host-label" class="tag" hidden>진행자 화면</div>
+      <h1>생각의 문</h1>
+      <p class="lead" id="lead">보고서를 모으고, 회로를 조작하고,<br>마지막 운반 경로를 찾으세요.</p>
+      <form id="join-form">
+        <div class="entry-fields">
+          <label>입장 코드<input id="code" name="code" maxlength="5" minlength="5" required autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="5자리"></label>
+          <label>별명<input id="nickname" name="nickname" maxlength="14" required autocomplete="off" placeholder="사용할 별명"></label>
+        </div>
+        <fieldset class="appearance">
+          <legend>캐릭터 색</legend>
+          <div id="colors" class="swatches"></div>
+        </fieldset>
+        <button class="primary fill" type="submit">방에 입장하기</button>
+      </form>
+      <label id="teacher-key-row" class="teacher-key" hidden>선생님 입장 키<input id="teacher-key" type="password" autocomplete="off" spellcheck="false"></label>
+      <button id="create-room" class="primary fill" hidden>새 게임 만들기</button>
+      <p id="home-error" class="error" role="alert"></p>
+      <a class="host-link" id="role-link" href="./?host=1">선생님 화면 열기</a>
+    </section>
+    <div class="home-art" aria-hidden="true"><canvas id="preview-map"></canvas></div>
+  </main>
+  <main id="game" class="page game" hidden>
+    <div id="game-alert" class="game-alert" role="status" hidden></div>
+    <div id="game-layout" class="game-layout">
+      <section class="scene">
+        <div class="scene-head">
+          <div><p class="eyebrow" id="scene-kicker"></p><h1 id="scene-title">대기실</h1></div>
+          <div id="scene-info" class="scene-info"></div>
+        </div>
+        <div class="map-wrap" id="map-wrap">
+          <canvas id="game-map" tabindex="0" aria-label="게임 지도. 화면을 누르거나 방향키로 이동할 수 있어요."></canvas>
+          <div id="map-overlay" class="map-overlay"></div>
+        </div>
+        <div class="scene-foot"><span id="map-help"></span><span id="map-pop"></span></div>
+      </section>
+      <aside id="control" class="control" aria-label="게임 진행"></aside>
+    </div>
+  </main>
+  <dialog id="host-guide" class="guide" aria-labelledby="guide-title">
+    <div class="guide-heading">
+      <h2 id="guide-title">정답과 풀이</h2>
+      <form method="dialog"><button class="compact" type="submit" autofocus>닫기</button></form>
+    </div>
+    <p class="guide-status" id="guide-status" role="status"></p>
+    <div id="guide-content" hidden>
+      <label for="guide-question">문제 선택</label>
+      <select id="guide-question"></select>
+      <div class="guide-answer" id="guide-answer"></div>
+      <p class="guide-explanation" id="guide-explanation"></p>
+    </div>
+  </dialog>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
