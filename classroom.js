@@ -3,7 +3,7 @@ import { apiBase, publicKey } from './online-config.js';
 const find = id => document.getElementById(id);
 const url = new URL(location.href);
 const host = url.searchParams.get('host') === '1';
-const storageKey = host ? 'logic-rooms-host-v2' : 'logic-rooms-player-v2';
+const storageKey = host ? 'logic-rooms-host-v3' : 'logic-rooms-player-v3';
 const keyboardKey = 'logic-rooms-operator';
 const scene = find('scene');
 const guide = find('guide');
@@ -27,11 +27,12 @@ function escape(value) {
 }
 
 function blankDraft() {
-  return { memory: [], numbers: Array(8).fill(null), slot: 0, pairs: [], face: null, code: '' };
+  return { memory: [], numbers: Array(8).fill(null), slot: 0, pairs: [], face: null,
+    corners: [[], []], corner: 0, times: [], choice: '', code: '' };
 }
 
 function draftKey() {
-  return 'logic-rooms-draft-v2:' + session?.code + ':' + state?.questionId;
+  return 'logic-rooms-draft-v3:' + session?.code + ':' + state?.questionId;
 }
 
 function savedDraft() {
@@ -103,7 +104,7 @@ function resetSession(error = '') {
 }
 
 function sceneHeader(title, caption) {
-  const time = state.endsIn === null ? '' : '<div class="timer"><span id="timer"></span><div class="timer-track" aria-hidden="true"><span id="timer-fill"></span></div></div>';
+  const time = state.endsIn === null ? '' : '<div class="timer" role="timer" aria-label="남은 시간"><span id="timer"></span><div class="timer-track" aria-hidden="true"><span id="timer-fill"></span></div></div>';
   return '<header class="scene-heading"><div><p class="section-label">' + escape(caption) +
     '</p><h1 id="scene-title">' + escape(title) + '</h1></div>' + time + '</header>';
 }
@@ -114,7 +115,7 @@ function activityTitle(question) {
 
 function controls() {
   if (!host || ['lobby', 'finish'].includes(state.phase)) return '';
-  const labels = { intro: '설명 마치기', reveal: '풀이 마치기', passage: '다음 라운드 열기' };
+  const labels = { story: '첫 문제 열기', intro: '설명 마치기', reveal: '풀이 마치기', passage: '다음 라운드 열기' };
   const advance = labels[state.phase]
     ? '<button type="button" class="button" data-action="advance">' + labels[state.phase] + '</button>' : '';
   return '<footer class="admin-bar"><p class="status-line" id="submitted-count"></p>' + advance +
@@ -147,8 +148,8 @@ function targets(question) {
 
 function memoryGrid(question, showCards, answer = draft.memory) {
   const rows = ['위', '가운데', '아래'];
-  const columns = ['왼쪽', '가운데', '오른쪽'];
-  return '<div class="memory-grid" aria-label="3×3 기억판">' + Array.from({ length: 9 }, (_, index) => {
+  const columns = question.columns ?? 3;
+  return '<div class="memory-grid' + (columns === 4 ? ' twelve' : '') + '" aria-label="3×' + columns + ' 기억판">' + Array.from({ length: columns * 3 }, (_, index) => {
     const order = answer.indexOf(index);
     const marker = order < 0 ? '' : '<span class="memory-order" aria-hidden="true">' + (order + 1) + '</span>';
     if (showCards) {
@@ -157,7 +158,7 @@ function memoryGrid(question, showCards, answer = draft.memory) {
         '<span class="icon symbol-' + escape(card.tone) + '" aria-hidden="true">' + escape(card.icon) +
         '</span><span class="name">' + escape(card.name) + '</span></div>';
     }
-    const locationName = rows[Math.floor(index / 3)] + ' 줄 ' + columns[index % 3] + ' 칸';
+    const locationName = rows[Math.floor(index / columns)] + ' 줄 ' + (index % columns + 1) + '번째 칸';
     return '<button type="button" class="memory-cell ' + (order < 0 ? '' : 'selected') +
       '" data-memory="' + index + '" aria-label="' + locationName + (order < 0 ? '' : ', ' + (order + 1) + '번째 선택') +
       '" aria-pressed="' + (order >= 0) + '"' + (host ? ' disabled' : '') + '>' + (marker || '<span aria-hidden="true">·</span>') + '</button>';
@@ -167,7 +168,8 @@ function memoryGrid(question, showCards, answer = draft.memory) {
 function study(question) {
   return '<div class="stage-layout"><div id="study-cards">' + memoryGrid(question, true, []) +
     '</div><section class="task-panel"><h2>그림의 위치를 기억하세요</h2><p>시간이 끝나면 그림이 사라져요.</p>' +
-    targets(question) + '<p id="study-mask" hidden>기억판이 잠겼어요.</p></section></div>';
+    (question.targets ? targets(question) : '<p>다음 화면에서 찾을 그림 세 개가 공개돼요.</p>') +
+    '<p id="study-mask" hidden>기억판이 잠겼어요.</p></section></div>';
 }
 
 function mathBoard() {
@@ -186,11 +188,13 @@ function mathControls(question) {
   const placed = draft.numbers.filter(digit => digit !== null);
   const complete = placed.length === 8;
   const total = draft.numbers.reduce((sum, value, index) => sum + (value ?? 0) * (index % 2 === 0 ? 10 : 1), 0);
+  const highest = Math.max(...[0, 2, 4, 6].map(index => (draft.numbers[index] ?? 0) * 10 + (draft.numbers[index + 1] ?? 0)));
   return '<h2>숫자 카드</h2><p>숫자가 든 칸을 누르면 카드를 뺄 수 있어요.</p><div class="digit-bank">' +
     question.digits.map(digit => '<button type="button" class="digit-card" data-digit="' + digit + '"' +
       (host || placed.includes(digit) ? ' disabled' : '') + '>' + digit + '</button>').join('') + '</div>' +
     '<div class="running-sum"><span>목표 <b>' + question.target + '</b></span><span>현재 합 <b>' +
-    (complete ? total : '—') + '</b></span><span>차이 <b>' + (complete ? Math.abs(total - question.target) : '—') + '</b></span></div>';
+    (complete ? total : '—') + '</b></span><span>' + (question.minimizeLargest ? '가장 큰 수' : '차이') +
+    ' <b>' + (complete ? question.minimizeLargest ? highest : Math.abs(total - question.target) : '—') + '</b></span></div>';
 }
 
 function cubeNet(question, pairs = draft.pairs, reveal = false) {
@@ -208,6 +212,51 @@ function cubeNet(question, pairs = draft.pairs, reveal = false) {
 function pairList(pairs) {
   return '<div class="pair-list">' + pairs.map((pair, index) =>
     '<span class="pair-' + (index + 1) + '">' + escape(pair.join('–')) + '</span>').join('') + '</div>';
+}
+
+function cornerNet(question, reveal = false) {
+  const marked = reveal ? question.correct : draft.corners;
+  return '<div class="cube-net corner-net" aria-label="정육면체 전개도">' + question.faces.map(face => {
+    const style = 'grid-area:' + face.row + '/' + face.column;
+    if (face.id === 'B') {
+      return '<div class="face base-face" style="' + style + '">B<span class="corner-marker left">①</span><span class="corner-marker right">②</span></div>';
+    }
+    const chosen = marked[draft.corner]?.includes(face.id);
+    if (reveal) return '<div class="face" style="' + style + '">' + face.id + '</div>';
+    return '<button type="button" class="face' + (chosen ? ' pair-' + (draft.corner + 1) : '') + '" style="' + style +
+      '" data-corner-face="' + face.id + '" aria-label="' + face.id + ' 면" aria-pressed="' + Boolean(chosen) + '"' +
+      (host ? ' disabled' : '') + '>' + face.id + '</button>';
+  }).join('') + '</div>';
+}
+
+function cornerChoices(question, choices, reveal = false) {
+  return '<div class="corner-choices">' + question.cornerNames.map((name, index) => {
+    const label = escape(name) + ' <strong>' + (choices[index].length ? escape(choices[index].join(' · ')) : '—') + '</strong>';
+    return reveal ? '<div class="corner-answer">' + label + '</div>' :
+      '<button type="button" class="button" data-corner="' + index + '" aria-pressed="' +
+      (index === draft.corner) + '"' + (host ? ' disabled' : '') + '>' + label + '</button>';
+  }).join('') + '</div>';
+}
+
+function timeBoard(question, reveal = false) {
+  const selected = reveal ? question.correct : draft.times;
+  return '<div class="time-board" aria-label="알림이 울린 시각">' + question.times.map(time => {
+    const chosen = selected.includes(time);
+    return reveal ? '<span class="time-chip' + (chosen ? ' selected' : '') + '">' + time + '분</span>' :
+      '<button type="button" class="time-chip' + (chosen ? ' selected' : '') + '" data-time="' + time +
+      '" aria-pressed="' + chosen + '"' + (host ? ' disabled' : '') + '>' + time + '분</button>';
+  }).join('') + '</div>';
+}
+
+function readingsTable(question, reveal = false) {
+  return '<table class="clue-table readings"><thead><tr><th scope="col">장치</th><th scope="col">시작</th>' +
+    '<th scope="col">중간</th><th scope="col">마지막</th></tr></thead><tbody>' + question.readings.map(row => {
+    const chosen = row.id === (reveal ? question.correct : draft.choice);
+    const control = reveal ? row.id : '<button type="button" class="button quiet" data-record="' + row.id +
+      '" aria-label="' + row.id + ' 장치 고르기" aria-pressed="' + chosen + '"' + (host ? ' disabled' : '') + '>' + row.id + '</button>';
+    return '<tr class="' + (chosen ? 'selected' : '') + '"><th scope="row">' + control + '</th>' +
+      row.data.map(value => '<td>' + value + '</td>').join('') + '</tr>';
+  }).join('') + '</tbody></table>';
 }
 
 function clueTable(question) {
@@ -240,10 +289,26 @@ function activity(question) {
         draft.face ? escape(draft.face) + ' 면과 마주 보는 면을 누르세요.' : '두 면을 차례로 눌러 짝지으세요.') + '</p>' +
         pairList(draft.pairs) + '<p>이미 짝지은 면을 누르면 연결을 풀 수 있어요.</p>';
       break;
+    case 'corner':
+      board = cornerNet(question);
+      panel = '<h2>꼭짓점별로 두 면</h2><p>① 또는 ②를 고른 뒤 전개도의 면을 두 개 누르세요.</p>' +
+        cornerChoices(question, draft.corners);
+      break;
+    case 'schedule':
+      board = timeBoard(question);
+      panel = '<h2>울린 간격</h2><p>' + question.intervals.join('분 · ') + '분</p><p>정확히 두 알림이 겹친 시각을 모두 골라요.</p>' +
+        '<p class="section-label">' + draft.times.length + '개 선택</p>';
+      break;
+    case 'data':
+      board = readingsTable(question);
+      panel = '<h2>검사 기준</h2><ol class="checklist">' + question.conditions.map(condition =>
+        '<li>' + escape(condition) + '</li>').join('') + '</ol>';
+      break;
     case 'logic':
       board = clueTable(question);
-      panel = '<h2>비밀번호</h2><p>서로 다른 숫자 세 개를 입력해요.</p>' +
-        (host ? '' : '<label for="logic-code">세 자리 비밀번호</label><input id="logic-code" class="code-input" inputmode="numeric" maxlength="3" autocomplete="off" value="' +
+      panel = '<h2>비밀번호</h2><p>서로 다른 숫자 ' + (question.codeLength ?? 3) + '개를 입력해요.</p>' +
+        (host ? '' : '<label for="logic-code">비밀번호 입력</label><input id="logic-code" class="code-input" inputmode="numeric" maxlength="' +
+          (question.codeLength ?? 3) + '" autocomplete="off" value="' +
           escape(draft.code) + '">');
       break;
   }
@@ -259,10 +324,13 @@ function reveal(question) {
     visual = '<div class="task-panel"><p class="answer-example">' + nums.join(' + ') + ' = ' + question.correct + '</p></div>';
   }
   if (question.kind === 'shape') visual = cubeNet(question, question.correct, true);
+  if (question.kind === 'corner') visual = cornerNet(question, true) + cornerChoices(question, question.correct, true);
+  if (question.kind === 'schedule') visual = timeBoard(question, true);
+  if (question.kind === 'data') visual = readingsTable(question, true);
   if (question.kind === 'logic') visual = clueTable(question);
   const result = state.me ? '<span class="result-label">' + (state.me.result === true ? '정답을 맞혔어요' :
     state.me.result === false ? '내 답을 풀이와 비교해 보세요' : '이 문제의 답을 제출하지 않았어요') + '</span>' : '';
-  return '<div class="stage-layout"><div>' + visual + '</div><section class="task-panel">' + result +
+  return '<div class="stage-layout solution-layout"><div>' + visual + '</div><section class="task-panel">' + result +
     '<div class="solution-text">' + escape(question.answer) + '</div><div class="explanation">' +
     escape(question.explanation) + '</div></section></div>';
 }
@@ -279,29 +347,49 @@ function playing() {
     content + '</div>' + controls();
 }
 
-function passage() {
-  const text = state.round === 2 ? '모두 2라운드의 수 감각 문제를 풀어요.' :
-    host ? '결승 진출 ' + state.finalists + '명. 모두 같은 마지막 문제를 풀어요.' :
-    state.area === 'finalist' ? '결승 진출! 마지막 문제에서 우승에 도전해요.' : '마지막 문제도 계속 풀고 내 점수에 도전해요.';
-  return sceneHeader('다음 라운드', state.round + '라운드') +
+function storyText(story) {
+  const lines = story.lines.map(line => '<p>' + escape(line) + '</p>').join('');
+  const quote = story.quote ? '<blockquote>“' + escape(story.quote) + '”</blockquote>' : '';
+  return '<div class="story-text">' + lines + quote + '</div>';
+}
+
+function storyScreen() {
+  return sceneHeader(state.story.title, state.phase === 'epilogue' ? '기록실 이야기 · 엔딩' : '기록실 이야기 · 시작') +
     '<p id="paused-note" class="paused-note" hidden>진행자가 게임을 잠시 멈췄어요.</p>' +
-    '<div class="scene-body"><p class="intro-text">' + text + '</p></div>' + controls();
+    '<div class="scene-body">' + storyText(state.story) + '</div>' + controls();
+}
+
+function passage() {
+  const text = state.round < state.roundCount ? '' :
+    host ? '결승 진출 ' + state.finalists + '명. 모두 같은 마지막 문제를 풀어요.' :
+    state.area === 'finalist' ? '결승 진출! 마지막 문제에서 우승에 도전해요.' :
+    state.area === 'record' ? '마지막 문제도 계속 풀고 내 점수에 도전해요.' : '모두 같은 마지막 문제를 풀어요.';
+  return sceneHeader(state.story?.title ?? '다음 라운드', state.round + '라운드') +
+    '<p id="paused-note" class="paused-note" hidden>진행자가 게임을 잠시 멈췄어요.</p>' +
+    '<div class="scene-body">' + (state.story ? storyText(state.story) : '') +
+    (text ? '<p class="status-line">' + text + '</p>' : '') + '</div>' + controls();
 }
 
 function finish() {
   const winners = state.winners.length ? (state.winners.length > 1 ? '공동 우승 · ' : '우승 · ') + state.winners.join(', ') :
     '이번 판 결승에서 나온 정답이 없어요.';
-  return sceneHeader('게임이 끝났어요', '최종 결과') + '<div class="scene-body"><h2>' + escape(winners) + '</h2>' +
-    (host ? '' : '<p class="score">' + state.me.total + ' / 4</p><p class="callout">내가 맞힌 문제</p>') +
+  return sceneHeader('게임이 끝났어요', '최종 결과') + '<div class="scene-body">' +
+    (state.story ? '<div class="ending-story"><h2>' + escape(state.story.title) + '</h2>' + storyText(state.story) + '</div>' : '') +
+    '<h2>' + escape(winners) + '</h2>' +
+    (host ? '' : '<p class="score">' + state.me.total + ' / ' + state.questionCount + '</p><p class="callout">내가 맞힌 문제</p>') +
     '<button class="button quiet" type="button" data-action="leave">' + (host ? '새 판 준비' : '입장 화면으로') + '</button></div>';
 }
 
 function answerReady() {
+  const length = state.puzzle?.codeLength ?? 3;
   switch (state.puzzle?.kind) {
     case 'memory': return draft.memory.length === 3;
     case 'number': return draft.numbers.every(digit => digit !== null);
     case 'shape': return draft.pairs.length === 3;
-    case 'logic': return /^\d{3}$/.test(draft.code) && new Set(draft.code).size === 3;
+    case 'corner': return draft.corners.every(pair => pair.length === 2);
+    case 'schedule': return draft.times.length > 0;
+    case 'data': return Boolean(draft.choice);
+    case 'logic': return draft.code.length === length && /^\d+$/.test(draft.code) && new Set(draft.code).size === length;
     default: return false;
   }
 }
@@ -332,14 +420,14 @@ function sync() {
     const locked = state.me.submitted || state.paused || busy;
     submit.disabled = locked || !answerReady();
     submit.textContent = state.me.submitted ? '제출 완료' : '답 제출';
-    for (const input of scene.querySelectorAll('[data-memory], [data-slot], [data-face], [data-action=reset], #logic-code')) input.disabled = locked;
+    for (const input of scene.querySelectorAll('[data-memory], [data-slot], [data-face], [data-corner-face], [data-corner], [data-time], [data-record], [data-action=reset], #logic-code')) input.disabled = locked;
     for (const input of scene.querySelectorAll('[data-digit]')) input.disabled = locked || draft.numbers.includes(Number(input.dataset.digit));
   }
 }
 
 function accept(next, sequence) {
   if (sequence < accepted) return;
-  if (next.format !== 2) throw new Error('게임 화면을 새로고침해 주세요.');
+  if (next.format !== 3) throw new Error('게임 화면을 새로고침해 주세요.');
   accepted = sequence;
   if (connectionLost) {
     connectionLost = false;
@@ -356,9 +444,10 @@ function accept(next, sequence) {
   if (newQuestion) draft = savedDraft();
   if (state.phaseId !== phase) {
     phase = state.phaseId;
-    scene.className = 'scene ' + (state.puzzle?.kind ?? '');
+    scene.className = state.puzzle ? 'scene record-sheet ' + state.puzzle.kind : 'scene';
     scene.innerHTML = state.phase === 'lobby' ? lobby() :
-      state.phase === 'finish' ? finish() : state.phase === 'passage' ? passage() : playing();
+      state.phase === 'finish' ? finish() : state.phase === 'passage' ? passage() :
+      ['story', 'epilogue'].includes(state.phase) ? storyScreen() : playing();
     window.scrollTo(0, 0);
   }
   sync();
@@ -427,7 +516,7 @@ async function enter(path, body, button) {
   button.disabled = true;
   setEntryError('');
   try {
-    const result = await request(path, { format: 2, ...body });
+    const result = await request(path, { format: 3, ...body });
     rememberSession({ code: result.code, token: result.token });
     if (result.state) accept(result.state, ++issued);
     else await poll();
@@ -442,7 +531,7 @@ async function enter(path, body, button) {
 
 function handleSelection(button) {
   if (host || busy || state.paused || state.me.submitted || state.phase !== 'question') return false;
-  const { memory, slot, digit, face } = button.dataset;
+  const { memory, slot, digit, face, corner, cornerFace, time, record } = button.dataset;
   if (memory !== undefined) {
     const index = Number(memory);
     if (draft.memory.includes(index)) draft.memory = draft.memory.filter(item => item !== index);
@@ -470,6 +559,22 @@ function handleSelection(button) {
       draft.pairs.push([draft.face, face]);
       draft.face = null;
     }
+  } else if (corner !== undefined) {
+    draft.corner = Number(corner);
+  } else if (cornerFace !== undefined) {
+    const pair = draft.corners[draft.corner];
+    if (pair.includes(cornerFace)) draft.corners[draft.corner] = pair.filter(item => item !== cornerFace);
+    else if (pair.length < 2) pair.push(cornerFace);
+    else {
+      notice('선택한 면 하나를 빼고 다시 골라 주세요.');
+      return true;
+    }
+  } else if (time !== undefined) {
+    const minute = Number(time);
+    if (draft.times.includes(minute)) draft.times = draft.times.filter(item => item !== minute);
+    else draft.times.push(minute);
+  } else if (record !== undefined) {
+    draft.choice = record;
   } else return false;
   refreshActivity(button);
   return true;
@@ -488,6 +593,9 @@ function submission() {
     case 'memory': return draft.memory;
     case 'number': return draft.numbers;
     case 'shape': return draft.pairs;
+    case 'corner': return draft.corners;
+    case 'schedule': return draft.times;
+    case 'data': return draft.choice;
     case 'logic': return draft.code;
   }
 }
@@ -529,7 +637,7 @@ scene.addEventListener('click', async event => {
 
 scene.addEventListener('input', event => {
   if (event.target.id !== 'logic-code') return;
-  draft.code = event.target.value.replace(/[^0-9]/g, '').slice(0, 3);
+  draft.code = event.target.value.replace(/[^0-9]/g, '').slice(0, state.puzzle.codeLength ?? 3);
   event.target.value = draft.code;
   saveDraft();
   sync();
@@ -585,12 +693,15 @@ function initialize() {
     find('entry-label').textContent = '선생님 화면';
     find('entry-description').textContent = '방을 열고 학생이 모두 입장하면 게임을 시작하세요.';
     const fromLink = new URLSearchParams(url.hash.slice(1)).get('operator');
+    const isPin = key => /^[0-9]{4}$/.test(key ?? '');
+    let pin = isPin(fromLink) ? fromLink : '';
     try {
-      if (fromLink) sessionStorage.setItem(keyboardKey, fromLink);
-      find('teacher-key').value = fromLink ?? sessionStorage.getItem(keyboardKey) ?? '';
-    } catch {
-      find('teacher-key').value = fromLink ?? '';
-    }
+      if (pin) sessionStorage.setItem(keyboardKey, pin);
+      const saved = sessionStorage.getItem(keyboardKey);
+      if (!pin && isPin(saved)) pin = saved;
+      else if (!pin) sessionStorage.removeItem(keyboardKey);
+    } catch {}
+    find('teacher-key').value = pin;
     if (fromLink) history.replaceState(null, '', url.pathname + url.search);
   } else {
     find('join-code').value = url.searchParams.get('join')?.slice(0, 5).toUpperCase() ?? '';
