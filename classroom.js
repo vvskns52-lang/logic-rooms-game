@@ -128,6 +128,8 @@ function lobby() {
     '<button type="button" class="button quiet" data-action="leave">입장 화면으로</button></div>';
   const join = new URL('./', location.href);
   join.searchParams.set('join', state.code);
+  const edition = url.searchParams.get('edition');
+  if (edition) join.searchParams.set('edition', edition);
   return sceneHeader('학생 입장', '대기실') + '<div class="scene-body lobby-split"><section class="task-panel">' +
     '<p class="section-label">방 코드</p><div class="large-code">' + escape(state.code) + '</div>' +
     '<label for="join-address">학생 입장 주소</label><div class="link-row"><input id="join-address" readonly value="' + escape(join.href) + '">' +
