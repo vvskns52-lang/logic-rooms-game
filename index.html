@@ -29,19 +29,16 @@
       </div>
       <form class="entry-panel" id="join-form">
         <h2>학생 입장</h2>
-        <label>입장 코드<input id="join-code" maxlength="6" minlength="5" required autocapitalize="characters" spellcheck="false" autocomplete="off" placeholder="입장 코드"></label>
+        <label>입장 코드<input id="join-code" maxlength="5" minlength="5" required autocapitalize="characters" spellcheck="false" autocomplete="off" placeholder="코드 5자리"></label>
         <label>별명<input id="join-name" maxlength="14" required autocomplete="off" placeholder="게임에서 쓸 별명"></label>
         <button class="button primary" type="submit">방에 입장하기</button>
         <a class="small-link" href="./?host=1">선생님 화면</a>
       </form>
       <form class="entry-panel" id="host-form" hidden>
         <h2>선생님 입장</h2>
-        <label>게임 방식<select id="game-mode"><option value="solo">개인전 · 생각의 문</option><option value="team">모둠전 · 방탈출과 결승</option></select></label>
-        <p id="mode-help"></p>
-        <label><span id="key-label">선생님 입장 키</span><input id="teacher-key" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="숫자 4자리" required autocomplete="off" spellcheck="false"></label>
-        <button class="button primary" type="submit">개인전 방 만들기</button>
+        <label>선생님 입장 키<input id="teacher-key" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="숫자 4자리" required autocomplete="off" spellcheck="false"></label>
+        <button class="button primary" type="submit">새 게임 만들기</button>
         <a class="small-link" href="./">학생 입장 화면</a>
-        <a class="small-link" id="classroom-download" hidden href="https://github.com/vvskns52-lang/logic-rooms-game#모둠전-준비">모둠 탈출전·결승 수업 준비</a>
       </form>
       <p id="entry-error" class="entry-error" role="alert" hidden></p>
     </section>
@@ -65,7 +62,7 @@
       <p id="guide-explanation"></p>
     </div>
   </dialog>
-  <script type="module" src="./classroom.js?v=mode-choice-2"></script>
+  <script type="module" src="./classroom.js?v=solo-12"></script>
   <script type="module" src="./bgm.js?v=finale-11"></script>
 </body>
 </html>

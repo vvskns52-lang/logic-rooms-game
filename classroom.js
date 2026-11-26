@@ -1,4 +1,3 @@
-import { integrated } from './runtime-config.js';
 import { apiBase, publicKey } from './online-config.js';
 import { lockExample, archiveActivity, currentTurns, fitPieceMarkup } from './archive-activities.mjs?v=finale-11';
 import { fitLayout, pieceSquares } from './spatial-tools.mjs';
@@ -62,10 +61,10 @@ function rememberSession(next) {
 async function request(path, data, token) {
   let reply;
   try {
-    reply = await fetch((integrated ? '' : apiBase) + '/api/' + path, {
+    reply = await fetch(apiBase + '/api/' + path, {
       method: data ? 'POST' : 'GET',
       headers: {
-        ...(integrated ? {} : { apikey: publicKey }),
+        apikey: publicKey,
         ...(token ? { 'X-Room-Token': token } : {}),
         ...(data ? { 'Content-Type': 'application/json' } : {}),
       },
@@ -134,8 +133,7 @@ function lobby() {
   if (!host) return sceneHeader('입장했어요', '대기실') + '<div class="scene-body">' +
     '<h2>' + escape(state.me.name) + ' 님</h2><p class="callout">선생님이 시작하면 첫 번째 문제 설명이 열려요.</p>' +
     '<button type="button" class="button quiet" data-action="leave">입장 화면으로</button></div>';
-  const loopback = ['localhost','127.0.0.1','[::1]'].includes(location.hostname);
-  const join = new URL('./', loopback && state.studentOrigin ? state.studentOrigin : location.href);
+  const join = new URL('./', location.href);
   join.searchParams.set('join', state.code);
   const edition = url.searchParams.get('edition');
   if (edition) join.searchParams.set('edition', edition);
@@ -509,11 +507,6 @@ async function enter(path, body, button) {
   setEntryError('');
   try {
     const result = await request(path, { format: 4, ...body });
-    if(result.mode==='team'){
-      sessionStorage.setItem('frequency.final.2.'+(host?'teacher':'student'),result.token);
-      location.assign('./escape/'+(host?'?teacher=1':''));
-      return;
-    }
     rememberSession({ code: result.code, token: result.token });
     if (result.state) accept(result.state, ++issued);
     else await poll();
@@ -789,32 +782,18 @@ guideSelect.addEventListener('change', guideSelection);
 
 find('join-form').addEventListener('submit', event => {
   event.preventDefault();
-  const code=find('join-code').value.trim().toUpperCase();
-  if(!integrated&&code.length===6){setEntryError('모둠전은 교사가 안내한 교실 접속 주소에서 입장하세요.');return}
-  enter('join', { code, name: find('join-name').value }, event.currentTarget.querySelector('button[type=submit]'));
+  enter('join', { code: find('join-code').value.trim().toUpperCase(), name: find('join-name').value }, event.currentTarget.querySelector('button[type=submit]'));
 });
 find('host-form').addEventListener('submit', event => {
   event.preventDefault();
-  const mode=find('game-mode').value;
-  if(mode==='team'&&!integrated){location.assign('http://localhost:8789/?host=1&mode=team');return}
   const key = find('teacher-key').value.trim();
-  if(mode==='solo')try { sessionStorage.setItem(keyboardKey, key); } catch {}
-  enter('create', mode==='team'?{operator:key,mode}:{operator:key}, event.currentTarget.querySelector('button[type=submit]'));
+  try { sessionStorage.setItem(keyboardKey, key); } catch {}
+  enter('create', { operator: key }, event.currentTarget.querySelector('button[type=submit]'));
 });
 
-function modeChanged(){
-    const team=find('game-mode').value==='team', localLink=team&&!integrated;
-    find('teacher-key').closest('label').hidden=localLink;
-    find('teacher-key').disabled=localLink;
-    find('key-label').textContent=team?'실행 창의 모둠전 교사 키':'선생님 입장 키';
-    find('mode-help').textContent=team?(integrated?'네 명씩 힘을 합쳐 탈출하고, 상위 두 모둠이 결승에 진출합니다.':'교사 PC에서 Start-Classroom.cmd를 실행한 뒤 아래 버튼을 눌러 모둠전 교실을 여세요.'):'학생들이 각자 문제를 풀고 개인 점수를 겨룹니다.';
-    find('host-form').querySelector('[type=submit]').textContent=localLink?'모둠전 교실 열기':team?'모둠전 방 만들기':'개인전 방 만들기';
-    find('entry-error').hidden=true;
-}
 function initialize() {
   if (host) {
     find('join-form').hidden = true;
-    find('classroom-download').hidden = integrated;
     find('host-form').hidden = false;
     find('home-link').href = './?host=1';
     find('entry-label').textContent = '선생님 화면';
@@ -829,16 +808,13 @@ function initialize() {
       else if (!pin) sessionStorage.removeItem(keyboardKey);
     } catch {}
     find('teacher-key').value = pin;
-    find('game-mode').value=url.searchParams.get('mode')==='team'?'team':'solo';
-    find('game-mode').onchange=()=>{find('teacher-key').value='';modeChanged()};
-    modeChanged();
     if (fromLink) history.replaceState(null, '', url.pathname + url.search);
   } else {
-    find('join-code').value = url.searchParams.get('join')?.slice(0, 6).toUpperCase() ?? '';
+    find('join-code').value = url.searchParams.get('join')?.slice(0, 5).toUpperCase() ?? '';
   }
   try {
     const previous = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
-    if (previous && !url.searchParams.has('mode') && (host || !url.searchParams.has('join') || find('join-code').value === previous.code)) {
+    if (previous && (host || !url.searchParams.has('join') || find('join-code').value === previous.code)) {
       rememberSession(previous);
       poll();
     }
