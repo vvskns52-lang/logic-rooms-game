@@ -11,7 +11,8 @@ function shuffled(values) {
   return arr;
 }
 function must(condition, why) { if(!condition)throw Error(why); }
-export function classroom(now=Date.now, code=roomCode()) {
+export function classroom(now=Date.now, suppliedCode, prefix='') {
+  const code=suppliedCode??(prefix+roomCode());
   const pin=String(randomInt(100000,1000000)), teacher=token();
   const groups=[], sessions=new Map();
   const order=shuffled([0,1,2,3]);

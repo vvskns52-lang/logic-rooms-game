@@ -1,3 +1,4 @@
+import {randomInt} from 'node:crypto';
 import http from 'node:http';
 import {networkInterfaces} from 'node:os';
 import {readFile} from 'node:fs/promises';
@@ -25,35 +26,8 @@ async function upstream(action,method,b,token,code){
   return v;
 }
 
-export function createGameServer(up=upstream){
+export function createGameServer(up=upstream, teamPin=String(randomInt(1000,10000))){
   const rooms=new Map(),nextTokens=new Map();
-  function teamRoom(code){
-    if(!rooms.has(code))rooms.set(code,{people:new Map(),opened:false,complete:false});
-    return rooms.get(code);
-  }
-  function transfer(room,peer){
-    if(!peer.next)fail('이 개인전의 참가 명단에 없습니다.',403);
-    return {token:peer.next,host:peer.host};
-  }
-  function openFinale(room,code){
-    if(room.opened)return;
-    const game=classroom(Date.now,code),reserved=[];
-    const students=[...room.people.values()].filter(p=>!p.host);
-    if(!students.length)fail('이어갈 학생이 없습니다.');
-    const usedNames=new Set();
-    for(const p of room.people.values()){
-      let name=p.name;
-      if(!p.host){
-        let suffix=2;
-        while(usedNames.has(name))name=p.name+' ('+(suffix++)+')';
-        usedNames.add(name);
-      }
-      const result=p.host?game.api('teacher',{pin:game.pin}):game.api('join',{code,name});
-      reserved.push([p,result.token]);
-    }
-    for(const [p,next] of reserved){p.next=next;nextTokens.set(next,game)}
-    room.game=game;room.opened=true;
-  }
   return http.createServer(async(req,res)=>{
     const json=(status,obj)=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify(obj))};
     try{
@@ -83,31 +57,28 @@ export function createGameServer(up=upstream){
       if(r.startsWith('/api/')){
         const act=r.slice(5),allowed=req.method==='GET'?['state','host-guide']:req.method==='POST'?['create','join','action']:[];
         if(!allowed.includes(act))fail('지원하지 않는 요청입니다.',404);
+        if(act==='create'&&b.mode==='team'){
+          if(b.operator!==teamPin)fail('실행 창의 모둠전 교사 키를 확인하세요.',403);
+          let game;do{game=classroom(Date.now,undefined,'T')}while(rooms.has(game.code));
+          rooms.set(game.code,game);
+          const result=game.api('teacher',{pin:game.pin});
+          nextTokens.set(result.token,game);
+          return json(200,{mode:'team',code:game.code,token:result.token});
+        }
+        if(act==='join'&&String(code).length===6){
+          const game=rooms.get(String(code).trim().toUpperCase());
+          if(!game)fail('이 교실의 모둠전 입장 코드를 확인하세요.',404);
+          const result=game.api('join',{...b,code:game.code});
+          nextTokens.set(result.token,game);
+          return json(200,{mode:'team',code:game.code,token:result.token});
+        }
         const v=await up(act,req.method,b,oldToken,code);
-        if((act==='create'||act==='join')&&v.token&&v.code){
-          const room=teamRoom(v.code);
-          if(!room.people.has(v.token))room.people.set(v.token,{host:act==='create',name:v.state?.me?.name??b.name??''});
-        }
-        const room=rooms.get(v.code??code),peer=room?.people.get(oldToken??v.token);
-        if(act==='action'&&v.left&&room&&!room.opened)room.people.delete(oldToken);
         const st=act==='state'||act==='action'?v:v.state;
-        if(st?.phase&&room&&peer){
-          if(st.phase==='finish')room.complete=true;
-          st.finaleOpen=room.opened;
-          if(st.phase==='lobby'&&peer.host)st.studentOrigin=networkLinks(req.socket.localPort)[0];
-        }
+        if(st?.phase==='lobby')st.studentOrigin=networkLinks(req.socket.localPort)[0];
         return json(200,v);
       }
-      if(r==='/handoff'&&req.method==='POST'){
-        const room=rooms.get(code),peer=room?.people.get(oldToken);
-        if(!peer)fail('통합판의 개인전 입장 화면에서 접속해 주세요.',403);
-        if(!room.complete)fail('개인전 종료 후 모둠전이 열립니다.',409);
-        if(peer.host)openFinale(room,code);
-        if(!room.opened)fail('교사가 모둠전을 열면 이동할 수 있습니다.',409);
-        return json(200,transfer(room,peer));
-      }
       if(r.startsWith('/game/')&&req.method==='POST'){
-        const game=nextTokens.get(b.token);if(!game)fail('개인전 결과 화면에서 모둠전으로 다시 이동하세요.',403);
+        const game=nextTokens.get(b.token);if(!game)fail('교실 첫 화면에서 다시 입장해 주세요.',403);
         const act=r.slice(6);if(!['state','start','final','end','move','answer','inspect'].includes(act))fail('지원하지 않는 동작입니다.',404);
         return json(200,game.api(act,b));
       }
@@ -116,7 +87,7 @@ export function createGameServer(up=upstream){
   });
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
-  const port=Number(process.env.FINALE_PORT||8789),server=createGameServer();
+  const port=Number(process.env.FINALE_PORT||8789),teamPin=String(randomInt(1000,10000)),server=createGameServer(upstream,teamPin);
   server.on('error',e=>{console.error(e.code==='EADDRINUSE'?'포트가 이미 사용 중입니다. 이전 게임 실행 창을 닫고 다시 열어 주세요.':e.message);process.exitCode=1});
-  server.listen(port,'0.0.0.0',()=>{console.log('교사 화면  http://localhost:'+port+'/?host=1');for(const link of networkLinks(port))console.log('학생 주소  '+link+'/');console.log('생각의 문 개인전 → 모둠 탈출전 → 상위 두 모둠 결승\n기존 생각의 문 진행 키를 사용하세요. 수업이 끝날 때까지 창을 열어 두세요.')});
+  server.listen(port,'0.0.0.0',()=>{console.log('교사 화면  http://localhost:'+port+'/?host=1');for(const link of networkLinks(port))console.log('학생 주소  '+link+'/');console.log('모둠전 교사 키  '+teamPin+'\n개인전은 기존 생각의 문 진행 키를 사용하세요. 수업이 끝날 때까지 창을 열어 두세요.')});
 }

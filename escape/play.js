@@ -46,9 +46,9 @@ function status(g){
 }
 function field(){
  let title='',body='',controls='';
- if(game.phase==='ended'){title=results();body='모든 경기가 종료되었습니다.'}
+ if(game.phase==='ended'){title=results();body='모든 경기가 종료되었습니다.';controls=btn('첫 화면으로','home')}
  else if(teacher){
-   if(game.phase==='lobby'){title='모둠원 합류 대기';body='개인전 명단을 이어받았습니다. 아래 현황에서 모둠별 접속 인원을 확인한 뒤 시작하세요.';if(game.groups.length)controls=btn('예선 시작','start',true)}
+   if(game.phase==='lobby'){title='모둠원 합류 대기';body='입장 순서대로 네 명씩 배정됩니다. 아래 현황에서 모둠별 접속 인원을 확인한 뒤 시작하세요.';if(game.groups.length)controls=btn('예선 시작','start',true)}
    if(game.phase==='qualifier'){title='예선 진행 중';body='탈출 기록 상위 두 모둠이 결승에 진출합니다. '+(game.groups.length===1?'현재는 한 모둠 연습 경기입니다.':'');
    if(game.eligible.length>=Math.min(2,game.groups.length))controls=btn('결승 동시 시작','final',true)}
    if(game.phase==='final'){title='모둠 대항 결승';body='결승 모둠은 같은 단서로 재생 순서를 복원한 후 네 송신기를 동시에 켭니다.';controls=btn('경기 조기 종료','end')}
@@ -93,6 +93,7 @@ async function arrive(){const station=destination;destination=null;if(station===
 }
 document.addEventListener('click',e=>{
  const b=e.target.closest('[data-action]');if(!b||!game)return;const act=b.dataset.action;
+ if(act==='home'){sessionStorage.removeItem(storageKey);location.assign(teacher?'/?host=1&mode=team':'/');return}
  if(act.startsWith('visit'))return go(Number(act.slice(5)));
  if(act.startsWith('reel')){const i=Number(act.slice(4));if(!selection.includes(i))selection.push(i);return render()}
  if(act==='clear'){selection=[];return render()}
@@ -128,5 +129,5 @@ function frame(t){if(game){walk(Math.min(.05,(t-(prev||t))/1000));draw(t);const 
  $('clock').textContent=game.phase==='ended'?'경기 종료':game.stage==='final'?(active.join(' · ')||'결승 '+elapsed(now()-game.finalStart)):game.power>now()?'전원 ON · '+Math.ceil((game.power-now())/1000)+'초':game.start?'예선 '+elapsed(now()-game.start):'입장 대기'}prev=t;requestAnimationFrame(frame)}
 async function poll(){if(!auth||polling)return;polling=true;try{await api('state')}catch(e){say(e.message);if(/다시 입장|개인전 결과 화면/.test(e.message)){auth='';game=null;try{sessionStorage.removeItem(storageKey)}catch{}$('entry').hidden=false;$('game').hidden=true}}finally{polling=false}}
 setInterval(poll,650);setInterval(async()=>{if(!auth||teacher||!dirty||moving||!game||game.phase==='ended')return;const a=actors[game.me];dirty=false;moving=true;try{await api('move',{x:a.x,z:a.z})}catch{dirty=true}finally{moving=false}},240);
-$('returnLink').href=teacher?'/?host=1&recap=1':'/?recap=1';
+$('returnLink').href=teacher?'/?host=1&mode=team':'/';
 try{auth=sessionStorage.getItem(storageKey)||''}catch{}poll();requestAnimationFrame(frame);
