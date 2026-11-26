@@ -1,3 +1,4 @@
+import { integrated } from './runtime-config.js';
 import { apiBase, publicKey } from './online-config.js';
 import { lockExample, archiveActivity, currentTurns, fitPieceMarkup } from './archive-activities.mjs?v=finale-11';
 import { fitLayout, pieceSquares } from './spatial-tools.mjs';
@@ -61,10 +62,10 @@ function rememberSession(next) {
 async function request(path, data, token) {
   let reply;
   try {
-    reply = await fetch(apiBase + '/api/' + path, {
+    reply = await fetch((integrated ? '' : apiBase) + '/api/' + path, {
       method: data ? 'POST' : 'GET',
       headers: {
-        apikey: publicKey,
+        ...(integrated ? {} : { apikey: publicKey }),
         ...(token ? { 'X-Room-Token': token } : {}),
         ...(data ? { 'Content-Type': 'application/json' } : {}),
       },
@@ -133,7 +134,8 @@ function lobby() {
   if (!host) return sceneHeader('입장했어요', '대기실') + '<div class="scene-body">' +
     '<h2>' + escape(state.me.name) + ' 님</h2><p class="callout">선생님이 시작하면 첫 번째 문제 설명이 열려요.</p>' +
     '<button type="button" class="button quiet" data-action="leave">입장 화면으로</button></div>';
-  const join = new URL('./', location.href);
+  const loopback = ['localhost','127.0.0.1','[::1]'].includes(location.hostname);
+  const join = new URL('./', loopback && state.studentOrigin ? state.studentOrigin : location.href);
   join.searchParams.set('join', state.code);
   const edition = url.searchParams.get('edition');
   if (edition) join.searchParams.set('edition', edition);
@@ -279,7 +281,31 @@ function finish() {
     (state.story ? '<div class="ending-story"><h2>' + escape(state.story.title) + '</h2>' + storyText(state.story) + '</div>' : '') +
     '<h2>' + escape(winners) + '</h2>' +
     (host ? '' : '<p class="score">' + state.me.total + ' / ' + state.questionCount + '</p><p class="callout">내가 맞힌 문제</p>') +
+    (integrated ? '<section class="task-panel"><h2>다음 경기 · 모둠 방탈출</h2>' +
+    '<p>' + (host ? '개인전 입장 순서대로 네 명씩 모입니다. 모둠전을 열면 학생들이 기존 별명으로 이동합니다.' : '같은 별명으로 모둠에 합류합니다. 선생님이 모둠전을 열면 자동으로 이동해요.') + '</p>' +
+    '<button class="button primary" type="button" data-action="handoff">' + (host ? '모둠 탈출전 열기' : '모둠 탈출전으로 이동') + '</button></section>' : '') +
     '<button class="button quiet" type="button" data-action="leave">' + (host ? '새 판 준비' : '입장 화면으로') + '</button></div>';
+}
+
+let transferring = false;
+let nextTransferAttempt = 0;
+async function handoff() {
+  if (!integrated || transferring || !session || state?.phase !== 'finish') return;
+  transferring = true;
+  try {
+    const r = await fetch('/handoff', {
+      method:'POST', headers:{'Content-Type':'application/json','X-Room-Token':session.token},
+      body:JSON.stringify({code:session.code}), signal:AbortSignal.timeout(8000)
+    });
+    const result = await r.json();
+    if (!r.ok) throw Error(result.error || '모둠전으로 이동할 수 없습니다.');
+    sessionStorage.setItem('frequency.final.2.' + (result.host ? 'teacher' : 'student'), result.token);
+    location.assign('/escape/' + (result.host ? '?teacher=1' : ''));
+  } catch (error) {
+    transferring = false;
+    nextTransferAttempt = Date.now() + 7000;
+    notice(error.message, 4200);
+  }
 }
 
 function answerReady() {
@@ -437,6 +463,7 @@ function accept(next, sequence) {
   }
   sync();
   displayTime();
+  if (!host && state.phase === 'finish' && state.finaleOpen && !url.searchParams.has('recap') && Date.now() >= nextTransferAttempt) handoff();
 }
 
 function displayTime() {
@@ -631,6 +658,9 @@ scene.addEventListener('click', async event => {
   if (performance.now() < skipClick && button?.matches('[data-fit-cell], [data-fit-piece]')) return;
   if (!button || !state || button.disabled || handleSelection(button)) return;
   switch (button.dataset.action) {
+    case 'handoff':
+      handoff();
+      break;
     case 'play-closing': {
       if (!state.story?.closing) break;
       const voice = new SpeechSynthesisUtterance(state.story.closing + ' 이상으로 오늘의 축제 방송을 마칩니다.');
@@ -794,6 +824,7 @@ find('host-form').addEventListener('submit', event => {
 function initialize() {
   if (host) {
     find('join-form').hidden = true;
+    find('classroom-download').hidden = integrated;
     find('host-form').hidden = false;
     find('home-link').href = './?host=1';
     find('entry-label').textContent = '선생님 화면';
