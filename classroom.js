@@ -1,3 +1,4 @@
+import { mountBroadcastRounds } from './broadcast-rounds.mjs';
 import { apiBase, publicKey } from './online-config.js';
 import { lockExample, archiveActivity, currentTurns, fitPieceMarkup } from './archive-activities.mjs?v=finale-11';
 import { fitLayout, pieceSquares } from './spatial-tools.mjs';
@@ -277,7 +278,7 @@ function finish() {
     '이번 판 결승에서 나온 정답이 없어요.';
   return sceneHeader('게임이 끝났어요', '최종 결과') + '<div class="scene-body">' +
     (state.story ? '<div class="ending-story"><h2>' + escape(state.story.title) + '</h2>' + storyText(state.story) + '</div>' : '') +
-    '<h2>' + escape(winners) + '</h2>' +
+    '<h2>1~5라운드 결승 · ' + escape(winners) + '</h2>' +
     (host ? '' : '<p class="score">' + state.me.total + ' / ' + state.questionCount + '</p><p class="callout">내가 맞힌 문제</p>') +
     '<button class="button quiet" type="button" data-action="leave">' + (host ? '새 판 준비' : '입장 화면으로') + '</button></div>';
 }
@@ -431,8 +432,9 @@ function accept(next, sequence) {
     scene.className = state.puzzle ? 'scene record-sheet ' + state.puzzle.kind :
       ['story', 'epilogue', 'passage', 'finish'].includes(state.phase) ? 'scene record-sheet story-sheet' : 'scene';
     scene.innerHTML = state.phase === 'lobby' ? lobby() :
-      state.phase === 'finish' ? finish() : state.phase === 'passage' ? passage() :
+      state.phase === 'finish' ? '' : state.phase === 'passage' ? passage() :
       ['story', 'epilogue'].includes(state.phase) ? storyScreen() : playing();
+    if (state.phase === 'finish') mountBroadcastRounds(scene, session, state, host, finish);
     window.scrollTo(0, 0);
   }
   sync();

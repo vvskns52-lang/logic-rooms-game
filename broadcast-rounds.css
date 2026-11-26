@@ -1,0 +1,9 @@
+.broadcast-round {max-width:58rem;line-height:1.65}
+.broadcast-round article,.broadcast-round details,.broadcast-round form {margin:1rem 0}
+.broadcast-round .tape,.broadcast-slots {display:flex;flex-wrap:wrap;gap:.7rem}
+.broadcast-round .tape {list-style-position:inside;padding:0}
+.broadcast-round .tape li,.broadcast-round th,.broadcast-round td {padding:.35rem .65rem;border:1px solid currentColor}
+.broadcast-round table {border-collapse:collapse;text-align:left;width:100%}
+.broadcast-round label {display:grid;gap:.3rem}
+.broadcast-round select {font:inherit;padding:.45rem;color:#211c18;background:#fff9eb;max-width:100%}
+.broadcast-round summary {cursor:pointer;font-weight:bold}
