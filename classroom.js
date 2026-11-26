@@ -1,4 +1,5 @@
-import { mountBroadcastRounds } from './broadcast-rounds.mjs';
+import { broadcastQuestions, renderBroadcast } from './broadcast-rounds.mjs?v=shared-1';
+import { sharedGame } from './seven-game.mjs?v=shared-1';
 import { apiBase, publicKey } from './online-config.js';
 import { lockExample, archiveActivity, currentTurns, fitPieceMarkup } from './archive-activities.mjs?v=finale-11';
 import { fitLayout, pieceSquares } from './spatial-tools.mjs';
@@ -14,6 +15,9 @@ const phaseNames = { intro: '문제 설명', study: '암기 시간', question: '
 
 let session = null;
 let state = null;
+let shared = null;
+let extraScreen = '';
+const inBroadcast = s => s && ['epilogue','finish'].includes(s.phase);
 let phase = null;
 let receivedAt = 0;
 let issued = 0;
@@ -52,7 +56,11 @@ function saveDraft() {
 }
 
 function rememberSession(next) {
+  if (!next) sessionStorage.removeItem(storageKey+"-broadcast");
+  shared?.close();
+  extraScreen = '';
   session = next;
+  shared = next ? sharedGame(next, host, url.searchParams.get('roomHost'), updateBroadcast) : null;
   try {
     if (next) sessionStorage.setItem(storageKey, JSON.stringify(next));
     else sessionStorage.removeItem(storageKey);
@@ -91,6 +99,27 @@ function notice(text, timeout = 3500) {
   region.textContent = text;
   region.hidden = !text;
   if (text && timeout) noticeTimer = setTimeout(() => notice(''), timeout);
+}
+
+function updateBroadcast() {
+  if (!shared || !state) return;
+  const link = find('join-address');
+  if (host && link && shared.hostKey) {
+    const address = new URL(link.value);
+    address.searchParams.set('roomHost', shared.hostKey);
+    link.value = address.href;
+  }
+  if (!inBroadcast(state)) return;
+  const d=shared.data;
+  const screen=JSON.stringify([d?.stage, d?.mine, d?.board, shared.pending?.stage, shared.ready, shared.error]);
+  if(screen !== extraScreen){
+    extraScreen=screen;
+    scene.className='scene record-sheet';
+    renderBroadcast(scene,shared,host,escape,()=>resetSession());
+    window.scrollTo(0,0);
+  }
+  const count=find('extra-count');
+  if(count && d) count.textContent='제출 '+d.submitted+' / '+d.count+'명';
 }
 
 function resetSession(error = '') {
@@ -239,9 +268,7 @@ function playing() {
   if (state.phase === 'reveal') content = reveal(question);
   const evidence = ['study', 'question'].includes(state.phase) && question.evidence
     ? '<p class="case-note">' + escape(question.evidence) + '</p>' : '';
-  const finalNote = state.phase === 'intro' && state.round === state.roundCount ? '<p class="final-note">' + (host
-    ? '결승 진출 ' + (state.finalists ?? 0) + '명. 각자 마지막 문제에 도전해요.'
-    : state.area === 'finalist' ? '결승 진출! 이 문제를 맞히면 우승이에요.' : '결승에는 못 갔지만, 마지막 문제로 내 점수에 도전해요.') + '</p>' : '';
+  const finalNote = state.phase === 'intro' && state.round === 5 ? '<p>이 라운드 뒤에는 방송실 추리 두 문제가 이어집니다.</p>' : '';
   const board = host && ['question', 'reveal'].includes(state.phase)
     ? '<section class="live-board" aria-label="학생별 채점 현황"><h2>실시간 채점</h2><ul id="live-board"></ul></section>' : '';
   return sceneHeader(question.title, activityTitle(question)) +
@@ -263,24 +290,11 @@ function storyScreen() {
 }
 
 function passage() {
-  const text = state.round < state.roundCount ? '' :
-    host ? '결승 진출 ' + state.finalists + '명. 각자 마지막 문제에 도전해요.' :
-    state.area === 'finalist' ? '결승 진출! 마지막 문제에서 우승에 도전해요.' :
-    state.area === 'record' ? '마지막 문제도 계속 풀고 내 점수에 도전해요.' : '각자 마지막 문제에 도전해요.';
+  const text = state.round === 5 ? '7라운드까지 맞힌 문제마다 1승점을 얻어요.' : '';
   return sceneHeader(state.story?.title ?? '다음 라운드', state.round + '라운드') +
     '<p id="paused-note" class="paused-note" hidden>진행자가 게임을 잠시 멈췄어요.</p>' +
     '<div class="scene-body">' + (state.story ? storyText(state.story) : '') +
     (text ? '<p class="status-line">' + text + '</p>' : '') + '</div>' + controls();
-}
-
-function finish() {
-  const winners = state.winners.length ? (state.winners.length > 1 ? '공동 우승 · ' : '우승 · ') + state.winners.join(', ') :
-    '이번 판 결승에서 나온 정답이 없어요.';
-  return sceneHeader('게임이 끝났어요', '최종 결과') + '<div class="scene-body">' +
-    (state.story ? '<div class="ending-story"><h2>' + escape(state.story.title) + '</h2>' + storyText(state.story) + '</div>' : '') +
-    '<h2>1~5라운드 결승 · ' + escape(winners) + '</h2>' +
-    (host ? '' : '<p class="score">' + state.me.total + ' / ' + state.questionCount + '</p><p class="callout">내가 맞힌 문제</p>') +
-    '<button class="button quiet" type="button" data-action="leave">' + (host ? '새 판 준비' : '입장 화면으로') + '</button></div>';
 }
 
 function answerReady() {
@@ -425,6 +439,16 @@ function accept(next, sequence) {
   find('room-badge').hidden = false;
   find('room-badge').textContent = state.code;
   if (newQuestion) draft = savedDraft();
+  shared?.observe(state);
+  if (inBroadcast(state)) {
+    if (phase !== 'broadcast') {
+      try { sessionStorage.setItem(storageKey+'-broadcast',JSON.stringify({token:session.token,state})); } catch {}
+      phase='broadcast';
+      window.dispatchEvent(new CustomEvent('room-phase',{detail:{phase:'question',kind:'broadcast'}}));
+    }
+    updateBroadcast();
+    return;
+  }
   const renderPhase = state.puzzle?.kind === 'word' ? [state.phaseId, state.puzzle.attempts, state.me?.submitted].join('/') : state.phaseId;
   if (renderPhase !== phase) {
     phase = renderPhase;
@@ -432,12 +456,12 @@ function accept(next, sequence) {
     scene.className = state.puzzle ? 'scene record-sheet ' + state.puzzle.kind :
       ['story', 'epilogue', 'passage', 'finish'].includes(state.phase) ? 'scene record-sheet story-sheet' : 'scene';
     scene.innerHTML = state.phase === 'lobby' ? lobby() :
-      state.phase === 'finish' ? '' : state.phase === 'passage' ? passage() :
-      ['story', 'epilogue'].includes(state.phase) ? storyScreen() : playing();
-    if (state.phase === 'finish') mountBroadcastRounds(scene, session, state, host, finish);
+      state.phase === 'passage' ? passage() :
+      state.phase === 'story' ? storyScreen() : playing();
     window.scrollTo(0, 0);
   }
   sync();
+  updateBroadcast();
   displayTime();
 }
 
@@ -463,7 +487,7 @@ function displayTime() {
 }
 
 async function poll() {
-  if (!session || polling) return;
+  if (!session || polling || inBroadcast(state)) return;
   const current = session;
   const sequence = ++issued;
   polling = true;
@@ -770,9 +794,9 @@ find('guide-button').addEventListener('click', async () => {
   try {
     const questions = await request('host-guide?code=' + current.code, null, current.token);
     if (current !== session || !guide.open) return;
-    configuredGuide = questions;
-    guideSelect.replaceChildren(...questions.map((entry, index) => new Option(entry.round + '라운드 · ' + entry.title, index)));
-    guideSelect.value = String(Math.min(question, questions.length - 1));
+    configuredGuide = [...questions, ...broadcastQuestions.map((q,i)=>({round:6+i,title:q.title,answer:q.answer.join(' → '),explanation:new DOMParser().parseFromString(q.solution,'text/html').body.textContent}))];
+    guideSelect.replaceChildren(...configuredGuide.map((entry, index) => new Option(entry.round + '라운드 · ' + entry.title, index)));
+    guideSelect.value = String(inBroadcast(state) ? questions.length + Math.min(1,Math.floor(Math.max(0,shared.data?.stage || 0)/2)) : Math.min(question, questions.length-1));
     guideSelection();
     find('guide-content').hidden = false;
     status.textContent = '';
@@ -799,7 +823,7 @@ function initialize() {
     find('host-form').hidden = false;
     find('home-link').href = './?host=1';
     find('entry-label').textContent = '선생님 화면';
-    find('entry-description').textContent = '방을 열고 학생이 모두 입장하면 게임을 시작하세요.';
+    find('entry-description').textContent = '개인전 7라운드 · 정답마다 1승점입니다. 동점이면 공동 우승입니다.';
     const fromLink = new URLSearchParams(url.hash.slice(1)).get('operator');
     const isPin = key => /^[0-9]{4}$/.test(key ?? '');
     let pin = isPin(fromLink) ? fromLink : '';
@@ -818,7 +842,10 @@ function initialize() {
     const previous = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
     if (previous && (host || !url.searchParams.has('join') || find('join-code').value === previous.code)) {
       rememberSession(previous);
-      poll();
+      let saved;
+      try { saved=JSON.parse(sessionStorage.getItem(storageKey+'-broadcast')); } catch {}
+      if(saved?.token===previous.token && inBroadcast(saved.state)) accept(saved.state,++issued);
+      else poll();
     }
   } catch {}
 }

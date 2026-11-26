@@ -1,4 +1,4 @@
-const rounds = [
+export const broadcastQuestions = [
   {
     "choices": [
       "2번째",
@@ -64,83 +64,66 @@ const rounds = [
   }
 ];
 
-const memory = new Map();
-function read(key) {
-  if (memory.has(key)) return memory.get(key);
-  try { return JSON.parse(sessionStorage.getItem(key)) || {}; } catch { return {}; }
-}
-function save(key, progress) {
-  memory.set(key, progress);
-  try { sessionStorage.setItem(key, JSON.stringify(progress)); } catch {}
-}
-
-export function mountBroadcastRounds(scene, session, state, host, ending) {
-  const key = 'logic-broadcast-v1:' + session.code + ':' + session.token;
-  const progress = read(key);
-  const index = progress.index || 0;
-  if (index >= rounds.length) {
-    scene.innerHTML = ending();
-    if (!host) {
-      const extra = progress.results.filter(Boolean).length;
-      scene.querySelector('.score').textContent = (state.me.total + extra) + ' / ' + (state.questionCount + 2);
-      scene.querySelector('.callout').textContent = '개인 총점 · 방송실 두 문제 중 ' + extra + '개 정답';
-    }
+export function renderBroadcast(scene, game, host, escape, leave) {
+  const data=game.data;
+  if (!data || data.stage<0) {
+    scene.innerHTML='<header class="scene-heading"><h1 id="scene-title">6라운드 · 방송실 연결 중</h1></header><div class="scene-body"><p role="status"></p></div>';
+    scene.querySelector('[role=status]').textContent=game.error || '선생님 화면과 진행 상태를 맞추고 있어요.';
     return;
   }
-  const round = rounds[index];
-  const answered = progress.results?.[index] !== undefined;
-  const showSolution = host || answered;
-  scene.innerHTML = '<header class="scene-heading"><div><p class="section-label">개인전 · ' +
-    (6 + index) + '라운드 / 7라운드</p><h1 tabindex="-1">' + round.title + '</h1></div></header>' +
-    '<div class="scene-body broadcast-round">' + round.body +
-    '<details><summary>힌트 보기</summary>' + round.hint + '</details>' +
-    (showSolution ? (host ? '<p>학생들은 각자 답을 제출하고 다음 화면으로 이동합니다.</p>' :
-      '<h2>' + (progress.results[index] ? '정답이에요!' : '이번 답은 틀렸어요.') + '</h2>') +
-      '<details' + (host ? '' : ' open') + '><summary>정답과 풀이</summary>' + round.solution + '</details>' +
-      '<button type="button" class="button primary" data-next>' + (index ? '최종 결과 보기' : '7라운드로') + '</button>' :
-      '<form><h2>' + round.prompt + '</h2><div data-first></div><p>' + round.sequence +
-      '</p><div class="broadcast-slots"></div><p aria-live="polite"></p><button class="button primary">답 제출</button></form>') + '</div>';
-  if (showSolution) {
-    scene.querySelector('[data-next]').onclick = () => {
-      progress.index = index + 1;
-      delete progress.draft;
-      save(key, progress);
-      mountBroadcastRounds(scene, session, state, host, ending);
-      scene.querySelector('h1')?.focus();
-      window.scrollTo(0, 0);
+  const {stage}=data;
+  if(stage===4){
+    const board=data.board || [], first=board[0]?.total;
+    const winners=board.filter(p=>p.total===first).map(p=>p.name);
+    scene.innerHTML='<header class="scene-heading"><div><p class="section-label">7라운드 종료 · 누적 승점</p><h1 id="scene-title">'+
+      (winners.length? (winners.length>1?'공동 우승 · ':'우승 · ')+escape(winners.join(', ')):'참가자 없음')+
+      '</h1></div></header><div class="scene-body broadcast-round"><table><thead><tr><th>학생</th><th>1~5라운드</th><th>6~7라운드</th><th>총 승점</th></tr></thead><tbody>'+
+      board.map(p=>'<tr><th>'+escape(p.name)+'</th><td>'+p.base+'</td><td>'+p.extra+'</td><td><b>'+p.total+'</b></td></tr>').join('')+
+      '</tbody></table><button type="button" class="button quiet">'+(host?'새 판 준비':'입장 화면으로')+'</button></div>';
+    scene.querySelector('button').onclick=leave;
+    return;
+  }
+  const index=Math.floor(stage/2), q=broadcastQuestions[index], reveal=stage%2===1;
+  const sent=data.mine?.[index]!=null, waiting=game.pending?.stage===stage;
+  const header='<header class="scene-heading"><div><p class="section-label">'+(6+index)+' / 7라운드 · '+(reveal?'정답과 풀이':'문제 풀이')+'</p><h1 id="scene-title">'+q.title+'</h1></div></header>';
+  scene.innerHTML=header+'<div class="scene-body broadcast-round">'+q.body+
+    (reveal?q.solution:'<details><summary>힌트 보기</summary>'+q.hint+'</details>')+
+    (host?'<p id="extra-count"></p><button type="button" class="button primary" data-next>'+
+      (reveal?(index?'최종 순위 발표':'7라운드 열기'):'제출 마감 · 풀이 공개')+'</button>':
+      reveal?'<p role="status">'+(sent?(data.mine[index]?'정답 · 1승점':'오답 · 0승점'):'미제출 · 0승점')+'</p>':
+      sent||waiting?'<p role="status">'+(sent?'제출 완료. 선생님이 풀이를 공개하면 결과가 열립니다.':'답안을 보내는 중입니다. 연결되면 자동으로 다시 보냅니다.')+'</p>':
+      '<form><h2>'+q.prompt+'</h2><div data-first></div><p>'+q.sequence+'</p><div class="broadcast-slots"></div><p aria-live="polite"></p><button class="button primary">답 제출</button></form>')+'</div>';
+  if(host){
+    scene.querySelector('#extra-count').textContent='제출 '+data.submitted+' / '+data.count+'명';
+    const nextButton=scene.querySelector('[data-next]');
+    if(!game.ready){
+      nextButton.disabled=true;
+      nextButton.textContent=game.error || '교실 연결 복구 중';
+    }
+    nextButton.onclick=()=>{
+      const now=game.data;
+      if(!reveal && now.submitted<now.count && !confirm('아직 제출하지 않은 학생이 있습니다. 제출을 마감할까요?'))return;
+      game.advance(stage);
     };
-    return;
+  } else if(!reveal && !sent && !waiting){
+    const form=scene.querySelector('form'), saved=game.draft(stage);
+    const fields=q.answer.map((_,n)=>{
+      const label=document.createElement('label'), select=document.createElement('select');
+      label.textContent=n?n+q.unit:q.label;
+      select.required=true;select.add(new Option('선택',''));
+      for(const value of n?q.items:q.choices) select.add(new Option(value,value));
+      select.value=saved[n]||'';label.append(select);
+      form.querySelector(n?'.broadcast-slots':'[data-first]').append(label);return select;
+    });
+    const values=()=>fields.map(el=>el.value);
+    form.onchange=()=>{game.draft(stage,values());form.querySelector('[aria-live]').textContent='';};
+    form.onsubmit=e=>{
+      e.preventDefault();
+      const picks=values();
+      if(index===0 && new Set(picks.slice(1)).size!==6){
+        form.querySelector('[aria-live]').textContent='카드 여섯 장을 한 번씩 놓아 주세요.';return;
+      }
+      game.answer(stage,picks);
+    };
   }
-  const form = scene.querySelector('form');
-  const fields = round.answer.map((_, n) => {
-    const label = document.createElement('label');
-    label.textContent = n ? n + round.unit : round.label;
-    const select = document.createElement('select');
-    select.required = true;
-    select.add(new Option('선택', ''));
-    for (const item of n ? round.items : round.choices) select.add(new Option(item, item));
-    select.value = progress.draft?.[n] || '';
-    label.append(select);
-    form.querySelector(n ? '.broadcast-slots' : '[data-first]').append(label);
-    return select;
-  });
-  const values = () => fields.map(field => field.value);
-  form.onchange = () => {
-    progress.draft = values();
-    save(key, progress);
-    form.querySelector('[aria-live]').textContent = '';
-  };
-  form.onsubmit = event => {
-    event.preventDefault();
-    const picks = values();
-    if (!index && new Set(picks.slice(1)).size !== 6) {
-      form.querySelector('[aria-live]').textContent = '각 카드를 한 번씩 놓아 주세요.';
-      return;
-    }
-    progress.results ??= [];
-    progress.results[index] = round.answer.every((value, n) => value === picks[n]);
-    save(key, progress);
-    mountBroadcastRounds(scene, session, state, host, ending);
-    scene.querySelector('h1')?.focus();
-  };
 }
